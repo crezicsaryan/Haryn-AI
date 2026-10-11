@@ -1,0 +1,327 @@
+import type { Report } from "./types";
+import type { Chunk, RepoIndex } from "./ai";
+import { indexFromChunks, persistableChunks } from "./ai";
+import { asNumber, asString, getDb, nowIso, parseJson, toJson } from "./db";
+import { buildSampleReport, SAMPLE_ID } from "./sample";
+import { makeId } from "./utils";
+
+/**
+ * Analysis persistence.
+ *
+ * Reports are stored in the database so they survive a restart and can be
+ * shared by link. The retrieval index is **not** stored — it is derived data,
+ * rebuilt in memory from the persisted chunks on first use.
+ *
+ * This module is the seam the TRD calls out. Every caller goes through these
+ * functions, and none of them know how the data is stored, so the storage
+ * engine can change underneath without touching anything else.
+ */
+
+/* ------------------------------------------------------------------ */
+/* In-memory retrieval index cache                                     */
+/* ------------------------------------------------------------------ */
+
+const MAX_CACHED_INDEXES = 10;
+
+const globalRef = globalThis as unknown as {
+  __harynIndexCache?: Map<string, RepoIndex>;
+};
+
+function cache(): Map<string, RepoIndex> {
+  if (!globalRef.__harynIndexCache) globalRef.__harynIndexCache = new Map();
+  return globalRef.__harynIndexCache;
+}
+
+function cacheIndex(id: string, index: RepoIndex): void {
+  const c = cache();
+  c.set(id, index);
+  while (c.size > MAX_CACHED_INDEXES) {
+    const oldest = c.keys().next().value;
+    if (oldest === undefined) break;
+    c.delete(oldest);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Types                                                               */
+/* ------------------------------------------------------------------ */
+
+export interface AnalysisSummary {
+  id: string;
+  repoFullName: string;
+  repoUrl: string;
+  status: string;
+  healthScore: number | null;
+  findingCount: number;
+  criticalCount: number;
+  highCount: number;
+  fileCount: number;
+  durationMs: number;
+  createdAt: string;
+}
+
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+  engine?: string | null;
+  intent?: string | null;
+  sources?: string[];
+  createdAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Writes                                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The store's public API is deliberately **async**, even though the SQLite
+ * driver is synchronous. A server database (Postgres) genuinely awaits, so
+ * keeping the contract async now means swapping engines later touches only this
+ * file — no call site changes.
+ */
+
+/** Record the run up front, so history survives even a hard failure. */
+export async function createAnalysis(
+  id: string,
+  repo: {
+    owner: string;
+    name: string;
+    fullName: string;
+    url: string;
+    defaultBranch: string;
+  }
+): Promise<void> {
+  getDb().prepare(
+    `INSERT INTO analyses
+       (id, repo_owner, repo_name, repo_full_name, repo_url, default_branch, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'running', ?)
+     ON CONFLICT(id) DO UPDATE SET
+       status = 'running',
+       repo_full_name = excluded.repo_full_name`
+  ).run(
+    id,
+    repo.owner,
+    repo.name,
+    repo.fullName,
+    repo.url,
+    repo.defaultBranch,
+    nowIso()
+  );
+}
+
+export async function completeAnalysis(
+  report: Report,
+  index: RepoIndex | null
+): Promise<void> {
+  const critical = report.findings.filter((f) => f.severity === "critical").length;
+  const high = report.findings.filter((f) => f.severity === "high").length;
+
+  const chunks = index ? toJson(persistableChunks(index)) : null;
+
+  getDb().prepare(
+    `INSERT INTO analyses
+       (id, repo_owner, repo_name, repo_full_name, repo_url, default_branch,
+        status, health_score, finding_count, critical_count, high_count,
+        file_count, duration_ms, payload, chunks, created_at, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       status         = 'completed',
+       health_score   = excluded.health_score,
+       finding_count  = excluded.finding_count,
+       critical_count = excluded.critical_count,
+       high_count     = excluded.high_count,
+       file_count     = excluded.file_count,
+       duration_ms    = excluded.duration_ms,
+       payload        = excluded.payload,
+       -- Keep previously stored chunks if this run produced none.
+       chunks         = COALESCE(excluded.chunks, analyses.chunks),
+       completed_at   = excluded.completed_at,
+       error_code     = NULL,
+       error_message  = NULL`
+  ).run(
+    report.id,
+    report.repo.owner,
+    report.repo.name,
+    report.repo.fullName,
+    report.repo.url,
+    report.repo.defaultBranch,
+    report.healthScore,
+    report.findings.length,
+    critical,
+    high,
+    report.structure.fileCount,
+    report.durationMs,
+    toJson(report),
+    chunks,
+    report.createdAt,
+    report.completedAt
+  );
+
+  if (index) cacheIndex(report.id, index);
+}
+
+/** History is best-effort — never let a logging failure mask the real error. */
+export async function failAnalysis(
+  id: string,
+  code: string,
+  message: string
+): Promise<void> {
+  try {
+    getDb().prepare(
+      `INSERT INTO analyses
+         (id, repo_owner, repo_name, repo_full_name, status, error_code, error_message, created_at, completed_at)
+       VALUES (?, 'unknown', 'unknown', 'unknown', 'failed', ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         status        = 'failed',
+         error_code    = excluded.error_code,
+         error_message = excluded.error_message,
+         completed_at  = excluded.completed_at`
+    ).run(id, code, message.slice(0, 500), nowIso(), nowIso());
+  } catch {
+    /* ignore */
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Reads                                                               */
+/* ------------------------------------------------------------------ */
+
+export async function getReport(id: string): Promise<Report | null> {
+  // The bundled sample is a code-level fixture, always resolvable.
+  if (id === SAMPLE_ID) return buildSampleReport();
+
+  const row = getDb()
+    .prepare(`SELECT payload FROM analyses WHERE id = ?`)
+    .get(id);
+
+  return parseJson<Report | null>(row?.payload, null);
+}
+
+/**
+ * Retrieval index for an analysis.
+ *
+ * Rebuilt from the persisted chunks when it is not already in memory — which is
+ * the case for every report after a server restart. Embeddings are not rebuilt
+ * (that would need API calls), so a restored index is lexical + structural.
+ */
+export async function getIndex(id: string): Promise<RepoIndex | null> {
+  const cached = cache().get(id);
+  if (cached) return cached;
+  if (id === SAMPLE_ID) return null;
+
+  const row = getDb()
+    .prepare(`SELECT chunks FROM analyses WHERE id = ?`)
+    .get(id);
+
+  const chunks = parseJson<Chunk[] | null>(row?.chunks, null);
+  if (!chunks?.length) return null;
+
+  const index = await indexFromChunks(chunks, { withEmbeddings: false });
+  cacheIndex(id, index);
+  return index;
+}
+
+export async function hasReport(id: string): Promise<boolean> {
+  if (id === SAMPLE_ID) return true;
+  return Boolean(
+    getDb().prepare(`SELECT id FROM analyses WHERE id = ?`).get(id)
+  );
+}
+
+export async function listRecent(limit = 12): Promise<AnalysisSummary[]> {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, repo_full_name, repo_url, status, health_score,
+              finding_count, critical_count, high_count, file_count,
+              duration_ms, created_at
+         FROM analyses
+        WHERE status = 'completed'
+        ORDER BY created_at DESC
+        LIMIT ?`
+    )
+    .all(limit);
+
+  return rows.map((r) => ({
+    id: asString(r.id),
+    repoFullName: asString(r.repo_full_name),
+    repoUrl: asString(r.repo_url),
+    status: asString(r.status, "completed"),
+    healthScore:
+      r.health_score === null || r.health_score === undefined
+        ? null
+        : asNumber(r.health_score),
+    findingCount: asNumber(r.finding_count),
+    criticalCount: asNumber(r.critical_count),
+    highCount: asNumber(r.high_count),
+    fileCount: asNumber(r.file_count),
+    durationMs: asNumber(r.duration_ms),
+    createdAt: asString(r.created_at),
+  }));
+}
+
+export async function countAnalyses(): Promise<number> {
+  const row = getDb()
+    .prepare(`SELECT COUNT(*) AS c FROM analyses WHERE status = 'completed'`)
+    .get();
+  return asNumber(row?.c);
+}
+
+/* ------------------------------------------------------------------ */
+/* Chat transcript                                                     */
+/* ------------------------------------------------------------------ */
+
+export async function saveChatMessage(
+  analysisId: string,
+  msg: {
+    role: "user" | "assistant";
+    content: string;
+    engine?: string | null;
+    intent?: string | null;
+    sources?: string[] | null;
+  }
+): Promise<void> {
+  try {
+    getDb().prepare(
+      `INSERT INTO chat_messages
+         (id, analysis_id, role, content, engine, intent, sources, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      makeId("msg"),
+      analysisId,
+      msg.role,
+      msg.content.slice(0, 8000),
+      msg.engine ?? null,
+      msg.intent ?? null,
+      toJson(msg.sources ?? null),
+      nowIso()
+    );
+  } catch {
+    /* a lost transcript line must never break an answer */
+  }
+}
+
+export async function getChatMessages(
+  analysisId: string,
+  limit = 50
+): Promise<ChatTurn[]> {
+  const rows = getDb()
+    .prepare(
+      `SELECT role, content, engine, intent, sources, created_at
+         FROM chat_messages
+        WHERE analysis_id = ?
+        ORDER BY created_at ASC, rowid ASC
+        LIMIT ?`
+    )
+    .all(analysisId, limit);
+
+  return rows.map((r) => ({
+    role: asString(r.role) === "user" ? "user" : "assistant",
+    content: asString(r.content),
+    engine: r.engine === null ? null : asString(r.engine),
+    intent: r.intent === null ? null : asString(r.intent),
+    sources: parseJson<string[] | undefined>(r.sources, undefined),
+    createdAt: asString(r.created_at),
+  }));
+}
+
+export { SAMPLE_ID };

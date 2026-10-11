@@ -32,6 +32,15 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# local database (SQLite via node:sqlite)
+/data/
+
+# verification harness output — regenerate with `node scripts/shoot.js`
+/scripts/shots/
+# transient report ids written by the verification scripts
+/scripts/.last-*
 
 # vercel
 .vercel
