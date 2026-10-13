@@ -11,6 +11,7 @@ import {
   Send,
   Sparkles,
   TestTube2,
+  Waypoints,
   CircleAlert,
 } from "lucide-react";
 import type { Report } from "@/lib/types";
@@ -250,8 +251,21 @@ const INTENT_LABEL: Record<string, string> = {
   code: "code search",
 };
 
-function EngineBadge({ engine }: { engine?: "llm" | "retrieval" }) {
+function EngineBadge({ engine }: { engine?: "llm" | "retrieval" | "graph" }) {
   if (!engine) return null;
+
+  if (engine === "graph") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-pill border border-brand-200 bg-brand-50 px-1.5 py-[1px] text-[10px] font-medium text-brand-700"
+        title="Answered by traversing the codebase knowledge graph — every relationship is a stored edge, not a model's suggestion"
+      >
+        <Waypoints className="h-2.5 w-2.5" />
+        knowledge graph
+      </span>
+    );
+  }
+
   const llm = engine === "llm";
   return (
     <span

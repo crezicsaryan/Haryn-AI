@@ -29,6 +29,7 @@ import {
   Sparkles,
   Star,
   TestTube2,
+  Waypoints,
   CircleDot,
 } from "lucide-react";
 import type { Report } from "@/lib/types";
@@ -41,6 +42,7 @@ import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { FindingsList } from "./FindingsList";
 import { ArchitectureGraph } from "./ArchitectureGraph";
 import { ActivityPanel } from "./ActivityPanel";
+import { KnowledgeGraphView } from "./KnowledgeGraphView";
 import {
   AiSummaryCard,
   ChatAgent,
@@ -315,6 +317,12 @@ export function ReportView({ report }: { report: Report }) {
     },
     { id: "activity", label: "Activity", icon: GitCommitHorizontal },
     { id: "architecture", label: "Architecture", icon: Network },
+    {
+      id: "graph",
+      label: "Knowledge graph",
+      icon: Waypoints,
+      badge: report.graph?.nodeCount,
+    },
     { id: "dependencies", label: "Dependencies", icon: Package },
     { id: "testing", label: "Testing", icon: TestTube2 },
     { id: "summary", label: "AI summary", icon: Sparkles },
@@ -677,6 +685,42 @@ export function ReportView({ report }: { report: Report }) {
         {/* ======================= ARCHITECTURE ======================= */}
         <section id="architecture" className={cn("mt-10 scroll-mt-24", shown("architecture"))}>
           <ArchitectureGraph architecture={report.architecture} />
+        </section>
+
+        {/* ======================= KNOWLEDGE GRAPH ======================= */}
+        <section id="graph" className={cn("mt-10 scroll-mt-24", shown("graph"))}>
+          <Card className="overflow-hidden">
+            <CardHeader
+              title="Codebase knowledge graph"
+              subtitle="Files, functions, classes, routes, models and packages, and how they connect — parsed from the source, not generated"
+              icon={<Waypoints className="h-4 w-4" />}
+              action={
+                report.graph ? (
+                  <span className="hidden items-center gap-1.5 text-[11.5px] text-ink-3 sm:inline-flex">
+                    {formatCount(report.graph.nodeCount)} nodes ·{" "}
+                    {formatCount(report.graph.edgeCount)} relationships
+                  </span>
+                ) : null
+              }
+            />
+            <div className="p-4 sm:p-5">
+              {report.graph && report.graph.nodeCount > 0 ? (
+                <KnowledgeGraphView analysisId={report.id} repoUrl={report.repo.url} />
+              ) : (
+                <div className="flex flex-col items-center gap-2 py-12 text-center">
+                  <Waypoints className="h-6 w-6 text-ink-4" />
+                  <p className="font-display text-[15px] font-bold text-ink">
+                    No knowledge graph for this repository
+                  </p>
+                  <p className="max-w-lg text-[13px] leading-relaxed text-ink-2">
+                    {report.graph?.error
+                      ? `Graph generation failed: ${report.graph.error}`
+                      : "The graph is built from JavaScript and TypeScript. This repository had no files the parser could read."}
+                  </p>
+                </div>
+              )}
+            </div>
+          </Card>
         </section>
 
         {/* ======================= DEPENDENCIES ======================= */}

@@ -265,6 +265,23 @@ export const LIMITS = {
   /** Chunks kept in the retrieval index (also bounds memory per report). */
   indexedChunks: Number(process.env.INDEXED_CHUNKS ?? 2600),
   indexedBytes: Number(process.env.INDEXED_BYTES_MB ?? 16) * 1024 * 1024,
+
+  /**
+   * Knowledge-graph bounds.
+   *
+   * A large repository can yield tens of thousands of nodes, and both the
+   * database write and the browser would suffer. The graph is capped and the
+   * cap is reported, so the UI can say it is showing a subset rather than
+   * silently implying completeness.
+   */
+  graphMaxNodes: Number(process.env.GRAPH_MAX_NODES ?? 9000),
+  graphMaxEdges: Number(process.env.GRAPH_MAX_EDGES ?? 24000),
+  /**
+   * How many files the AST parser will parse. Separate from `analyzedFiles`
+   * because parsing with a real parser costs more than a regex pass, and the
+   * graph degrades gracefully — it just covers fewer files.
+   */
+  graphMaxFiles: Number(process.env.GRAPH_MAX_FILES ?? 2000),
 };
 
 /** Pipeline stages shown in the progress view (PRD §10). */
@@ -279,6 +296,7 @@ export const PIPELINE: { stage: string; label: string }[] = [
   { stage: "performance", label: "Running performance analysis" },
   { stage: "testing", label: "Analyzing test coverage" },
   { stage: "architecture", label: "Extracting architecture" },
+  { stage: "graph", label: "Building knowledge graph" },
   { stage: "scoring", label: "Calculating health score" },
   { stage: "ai", label: "Generating AI report" },
 ];

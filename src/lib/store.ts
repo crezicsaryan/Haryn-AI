@@ -46,18 +46,26 @@ function cacheIndex(id: string, index: RepoIndex): void {
 /* Types                                                               */
 /* ------------------------------------------------------------------ */
 
-export interface AnalysisSummary {
+/**
+ * One repository the user has analysed before, as the history picker sees it.
+ *
+ * Grouped by repository rather than by run: people think in repositories, and a
+ * repo analysed three times would otherwise fill the list with near-duplicates.
+ * The row carries the **latest** run, so selecting it opens the newest report,
+ * plus a run count so a stale result is recognisable.
+ */
+export interface RepoHistoryEntry {
+  /** Id of the most recent completed run for this repository. */
   id: string;
   repoFullName: string;
   repoUrl: string;
-  status: string;
   healthScore: number | null;
   findingCount: number;
   criticalCount: number;
   highCount: number;
   fileCount: number;
-  durationMs: number;
-  createdAt: string;
+  lastAnalyzedAt: string;
+  runCount: number;
 }
 
 export interface ChatTurn {
@@ -228,24 +236,48 @@ export async function hasReport(id: string): Promise<boolean> {
   );
 }
 
-export async function listRecent(limit = 12): Promise<AnalysisSummary[]> {
+/**
+ * Repositories the user has analysed before, newest first.
+ *
+ * `q` matches against `owner/name`, so typing a partial URL narrows the list.
+ * The filter is deliberately `LOWER(...) LIKE LOWER(...)` rather than plain
+ * `LIKE`: SQLite's `LIKE` is case-insensitive for ASCII but Postgres's is not,
+ * and this query has to keep working when the store moves to Postgres.
+ *
+ * The window functions do the grouping in one pass — `rn = 1` picks the latest
+ * run per repository and `run_count` reports how many times it has been run.
+ */
+export async function listRepoHistory(
+  q = "",
+  limit = 20
+): Promise<RepoHistoryEntry[]> {
+  const needle = q.trim();
+  // `%` and `_` are wildcards in LIKE, so a user typing one would match far more
+  // than they asked for. Escaping them needs an explicit ESCAPE clause, and the
+  // escape character must be exactly one character — `'\\'` in SQL source is a
+  // two-character string and SQLite rejects it.
+  const escaped = needle.replace(/[\\%_]/g, (c) => `\\${c}`);
+
   const rows = getDb()
     .prepare(
-      `SELECT id, repo_full_name, repo_url, status, health_score,
-              finding_count, critical_count, high_count, file_count,
-              duration_ms, created_at
-         FROM analyses
-        WHERE status = 'completed'
-        ORDER BY created_at DESC
-        LIMIT ?`
+      `SELECT * FROM (
+         SELECT id, repo_full_name, repo_url, health_score, finding_count,
+                critical_count, high_count, file_count, created_at,
+                ROW_NUMBER() OVER (PARTITION BY repo_full_name ORDER BY created_at DESC) AS rn,
+                COUNT(*)    OVER (PARTITION BY repo_full_name)                     AS run_count
+           FROM analyses
+          WHERE status = 'completed'
+            ${needle ? "AND LOWER(repo_full_name) LIKE LOWER(?) ESCAPE '\\'" : ""}
+       ) WHERE rn = 1
+       ORDER BY created_at DESC
+       LIMIT ?`
     )
-    .all(limit);
+    .all(...(needle ? [`%${escaped}%`, limit] : [limit]));
 
   return rows.map((r) => ({
     id: asString(r.id),
     repoFullName: asString(r.repo_full_name),
     repoUrl: asString(r.repo_url),
-    status: asString(r.status, "completed"),
     healthScore:
       r.health_score === null || r.health_score === undefined
         ? null
@@ -254,8 +286,8 @@ export async function listRecent(limit = 12): Promise<AnalysisSummary[]> {
     criticalCount: asNumber(r.critical_count),
     highCount: asNumber(r.high_count),
     fileCount: asNumber(r.file_count),
-    durationMs: asNumber(r.duration_ms),
-    createdAt: asString(r.created_at),
+    lastAnalyzedAt: asString(r.created_at),
+    runCount: asNumber(r.run_count),
   }));
 }
 

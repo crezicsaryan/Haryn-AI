@@ -79,6 +79,63 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 
 CREATE INDEX IF NOT EXISTS idx_chat_analysis
   ON chat_messages (analysis_id, created_at);
+
+-- ---------------------------------------------------------------------------
+-- Codebase knowledge graph.
+--
+-- Stored in the relational database rather than a graph database: the queries
+-- this feature needs are bounded traversals over a single analysis (neighbours,
+-- dependency paths), which indexed joins answer directly. Adding Neo4j or
+-- similar would be operational weight for no benefit at this scale.
+--
+-- The unique index on (analysis_id, source, target, relationship) is what makes
+-- re-running graph extraction idempotent — a duplicate edge cannot be inserted.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS graph_nodes (
+  id          TEXT NOT NULL,
+  analysis_id TEXT NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+  node_type   TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  file_path   TEXT,
+  start_line  INTEGER,
+  end_line    INTEGER,
+  language    TEXT,
+  metadata    TEXT,
+  -- Composite key on purpose. A node id is only meaningful inside its own
+  -- analysis, so scoping the key makes isolation structural rather than a
+  -- property of how ids happen to be generated.
+  PRIMARY KEY (analysis_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_analysis
+  ON graph_nodes (analysis_id);
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_type
+  ON graph_nodes (analysis_id, node_type);
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_name
+  ON graph_nodes (analysis_id, name);
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_file
+  ON graph_nodes (analysis_id, file_path);
+
+CREATE TABLE IF NOT EXISTS graph_edges (
+  id                TEXT NOT NULL,
+  analysis_id       TEXT NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+  source_node_id    TEXT NOT NULL,
+  target_node_id    TEXT NOT NULL,
+  relationship_type TEXT NOT NULL,
+  confidence        TEXT NOT NULL DEFAULT 'confirmed',
+  evidence          TEXT,
+  PRIMARY KEY (analysis_id, id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_edges_unique
+  ON graph_edges (analysis_id, source_node_id, target_node_id, relationship_type);
+CREATE INDEX IF NOT EXISTS idx_graph_edges_source
+  ON graph_edges (analysis_id, source_node_id);
+CREATE INDEX IF NOT EXISTS idx_graph_edges_target
+  ON graph_edges (analysis_id, target_node_id);
+CREATE INDEX IF NOT EXISTS idx_graph_edges_type
+  ON graph_edges (analysis_id, relationship_type);
 `;
 
 /* ------------------------------------------------------------------ */

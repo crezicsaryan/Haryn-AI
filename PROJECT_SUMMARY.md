@@ -108,6 +108,59 @@ prose and adds a semantic embedding blend.
 
 ---
 
+## Codebase knowledge graph
+
+A second, complementary view of the repository: not "what is wrong" but "what is
+connected to what".
+
+**Built by parsing the source with the TypeScript compiler API** — never
+generated. Every node traces to a real declaration with a line range; every edge
+carries the evidence that justified it.
+
+| | |
+| --- | --- |
+| **Entities** | repository, directory, file, function, class, interface, API endpoint, database model/table, external package, test, environment variable, middleware, controller, service |
+| **Relationships** | CONTAINS, IMPORTS, EXPORTS, DEFINES, CALLS, EXTENDS, IMPLEMENTS, USES, QUERIES, READS, WRITES, EXPOSES_ROUTE, TESTS, DEPENDS_ON |
+
+### Three rules the design follows
+
+1. **Evidence only.** A node exists because a declaration was found. When a call
+   cannot be resolved to exactly one declaration it is dropped rather than
+   guessed — a graph with invented edges is worse than a sparse one.
+2. **Confirmed vs inferred.** `import` statements, `extends` clauses and route
+   registrations are *confirmed* — the syntax states them. Cross-file name
+   resolution is *inferred*, and the UI draws those edges dashed.
+3. **Bounded.** Node and edge counts are capped and the cap is reported, so the
+   UI says "showing a subset" rather than implying completeness.
+
+### Storage
+
+Two tables (`graph_nodes`, `graph_edges`) in the existing database. A graph
+database would be operational weight for no benefit — the queries this needs are
+bounded traversals within one analysis, which indexed joins answer directly.
+Node ids are scoped by a composite `(analysis_id, id)` primary key, which makes
+cross-analysis isolation structural rather than a property of how ids happen to
+be generated.
+
+### Change impact
+
+Reverse-dependency traversal over incoming edges, excluding structural edges
+(`CONTAINS`, `DEFINES`, `EXPORTS`) — a file "containing" a function is not a
+dependency, and following it would report the entire repository as affected.
+Every result carries the relationship path that produced it, and the output is
+labelled **potential** impact, never a guarantee.
+
+### Graph-aware chat
+
+Questions like *"what depends on the payment service"*, *"which routes use the
+User model"* or *"what breaks if I change this function"* are resolved by
+traversing the graph before the retrieval pipeline runs. It returns `null` for
+anything else, so the existing RAG path is untouched — the graph extends the
+chat rather than replacing it. Answers cite `path:line` and say plainly when the
+graph lacks the information.
+
+---
+
 ## Tech stack
 
 | Layer | Choice | Why |
@@ -175,11 +228,17 @@ The project is verified against real repositories rather than fixtures:
 
 | Repository | Result |
 | --- | --- |
-| `crezicsaryan/gym-saathi` (26 files) | Health 86/100, 13 findings, found a hardcoded Google API key |
-| `amzn/selling-partner-api-samples` (3,509 files) | Health 61/100, 1,100 findings, 3,000 files / 17.9 MB scanned in 45 s |
+| `crezicsaryan/gym-saathi` (26 files) | Health 87/100, 14 findings, graph of 86 nodes / 131 edges from 18 parsed files |
+| `amzn/selling-partner-api-samples` (3,509 files) | Health 81/100, 1,100 findings, 3,000 files / 17.9 MB scanned in 45 s |
 
 Harnesses live in `scripts/`: `verify-live.js` (analysis), `verify-ai.js`
 (retrieval and chat), `shoot.js` (design screenshots).
+
+**Automated tests** — `npm test` runs 54 tests with Node's built-in runner
+(no test framework dependency; `tsconfig.test.json` compiles to CommonJS so the
+runner can load it). They cover node and relationship extraction, call and
+import resolution, duplicate prevention, persistence, traversal, change impact,
+malformed and empty input, invalid ids, and cross-analysis isolation.
 
 ---
 

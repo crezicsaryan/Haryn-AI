@@ -276,6 +276,12 @@ export interface Report {
   architecture: Architecture;
   /** Commit history. Optional — the GitHub API may be unavailable. */
   activity?: RepoActivity;
+  /**
+   * Knowledge-graph summary. The nodes and edges themselves live in their own
+   * tables and are fetched on demand — a report is a snapshot, and embedding
+   * tens of thousands of graph rows in it would bloat every read.
+   */
+  graph?: import("./graph/types").GraphStats;
   recommendations: Recommendation[];
   summary: string;
   /** Which engine produced the narrative summary. */
@@ -306,6 +312,7 @@ export type Stage =
   | "testing"
   | "performance"
   | "architecture"
+  | "graph"
   | "scoring"
   | "ai"
   | "completed"

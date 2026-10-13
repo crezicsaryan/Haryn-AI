@@ -6,6 +6,7 @@ import {
   saveChatMessage,
 } from "@/lib/store";
 import { answerQuestion, embedQuery, retrieveFor } from "@/lib/ai";
+import { answerFromGraph } from "@/lib/graph/query";
 import { answerQuestion as keywordAnswer } from "@/lib/chat";
 import { clientKey, RATE_LIMITS, rateLimit } from "@/lib/ratelimit";
 
@@ -77,6 +78,46 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   // Persist the question before answering so a failed answer still leaves a trail.
   await saveChatMessage(id, { role: "user", content: message });
+
+  /* --- Knowledge-graph path -----------------------------------------
+   * Questions about dependencies, impact, routes and tests are answered
+   * exactly from the graph. This runs *before* retrieval and returns null for
+   * anything else, so the existing RAG pipeline is untouched — the graph
+   * extends it rather than replacing it.
+   */
+  try {
+    const graphAnswer = await answerFromGraph(id, message);
+    if (graphAnswer) {
+      await saveChatMessage(id, {
+        role: "assistant",
+        content: graphAnswer.answer,
+        engine: "graph",
+        intent: graphAnswer.intent,
+        sources: graphAnswer.sources,
+      });
+
+      return NextResponse.json(
+        {
+          answer: graphAnswer.answer,
+          sources: graphAnswer.sources,
+          engine: "graph" as const,
+          intent: graphAnswer.intent,
+          groundedIn: graphAnswer.sources.length,
+          matches: [] as ChatMatch[],
+          entities: graphAnswer.entities.slice(0, 12).map((e) => ({
+            id: e.id,
+            name: e.name,
+            nodeType: e.nodeType,
+            filePath: e.filePath,
+            startLine: e.startLine,
+          })),
+        },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    }
+  } catch {
+    /* A graph lookup must never block a normal answer. */
+  }
 
   const index = await getIndex(id);
 

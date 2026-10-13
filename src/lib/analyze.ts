@@ -34,11 +34,17 @@ import { generateSummary } from "./summary";
 import { buildIndex, generateAiSummary, aiStatus, type RepoIndex } from "./ai";
 import { hashString, makeId } from "./utils";
 import { LIMITS } from "./constants";
+import { extractGraph, type ExtractResult as GraphExtractResult } from "./graph/extract";
 
 export interface AnalysisResult {
   report: Report;
   /** Retrieval index for repo-aware Q&A. Held beside the report, not inside it. */
   index: RepoIndex;
+  /**
+   * Codebase knowledge graph. Absent when graph generation failed — that is a
+   * degraded feature, not a failed analysis, so the report still stands.
+   */
+  graph?: GraphExtractResult;
 }
 
 const MANIFEST_BASENAMES = [
@@ -338,8 +344,38 @@ export async function runAnalysis(
   });
   done("architecture", "Architecture extracted", 90);
 
-  /* 11 — Documentation + scoring ------------------------------------- */
-  active("scoring", "Calculating health score", 92);
+  /* 11 — Knowledge graph ---------------------------------------------- */
+  // Parses the files already in memory — no second fetch, no second read from
+  // disk. A failure here is contained: the graph is one view of the report, so
+  // losing it must not lose the analysis.
+  active("graph", "Building knowledge graph", 91);
+  let graph: GraphExtractResult | undefined;
+  try {
+    const graphFiles = analyzable.slice(0, LIMITS.graphMaxFiles);
+    graph = extractGraph(id, graphFiles, allPaths, {
+      maxNodes: LIMITS.graphMaxNodes,
+      maxEdges: LIMITS.graphMaxEdges,
+    });
+    if (analyzable.length > graphFiles.length) {
+      graph.stats.truncated = true;
+    }
+    done("graph", `Knowledge graph built — ${graph.stats.nodeCount} nodes`, 92);
+  } catch (err) {
+    graph = undefined;
+    // Reported through the stage, not thrown: the rest of the report is valid.
+    emit({
+      type: "progress",
+      stage: "graph",
+      label: `Knowledge graph unavailable — ${
+        err instanceof Error ? err.message : "generation failed"
+      }`,
+      status: "done",
+      pct: 92,
+    });
+  }
+
+  /* 12 — Documentation + scoring ------------------------------------- */
+  active("scoring", "Calculating health score", 93);
   const docResult = analyzeDocumentation({
     allPaths,
     manifests,
@@ -399,6 +435,7 @@ export async function runAnalysis(
     testing: testingResult.analysis,
     architecture,
     activity,
+    graph: graph?.stats,
     recommendations: buildRecommendations(findings),
     summary: generateSummary({
       repo: meta,
@@ -434,5 +471,5 @@ export async function runAnalysis(
   }
   done("ai", "AI report generated", 99);
 
-  return { report, index };
+  return { report, index, graph };
 }

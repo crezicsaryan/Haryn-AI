@@ -48,8 +48,16 @@ export default function Home() {
                 evidence-based engineering health report.
               </p>
 
+              {/*
+                `z-20` is load-bearing, not decoration. `.animate-rise` ends on a
+                `translate3d`, which leaves a transform behind and makes every
+                animated element its own stacking context — so the product
+                preview below would paint over the history dropdown no matter how
+                high its own z-index is. Raising this wrapper lifts the whole
+                subtree above that sibling.
+              */}
               <div
-                className="animate-rise mt-9 flex w-full justify-center"
+                className="animate-rise relative z-20 mt-9 flex w-full justify-center"
                 style={{ animationDelay: "0.12s" }}
               >
                 <AnalyzeForm />

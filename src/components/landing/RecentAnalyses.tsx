@@ -2,11 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowUpRight, Clock, FileCode2, History, Loader2 } from "lucide-react";
+import { ArrowUpRight, Clock, FileCode2, History, Loader2, RotateCw } from "lucide-react";
 import { cn, formatCount, relativeTime } from "@/lib/utils";
 import { gradeFor } from "@/lib/scoring";
 
-interface RecentItem {
+/**
+ * One repository, not one run.
+ *
+ * The endpoint groups by repository and returns the latest run for each. Listing
+ * runs instead would show the same repository seven times over once it has been
+ * re-analysed a few times, which is exactly what a history view must not do.
+ */
+interface HistoryEntry {
   id: string;
   repoFullName: string;
   repoUrl: string;
@@ -15,8 +22,8 @@ interface RecentItem {
   criticalCount: number;
   highCount: number;
   fileCount: number;
-  durationMs: number;
-  createdAt: string;
+  lastAnalyzedAt: string;
+  runCount: number;
 }
 
 function ScorePill({ score }: { score: number }) {
@@ -40,14 +47,14 @@ function ScorePill({ score }: { score: number }) {
 }
 
 export function RecentAnalyses() {
-  const [items, setItems] = useState<RecentItem[] | null>(null);
+  const [items, setItems] = useState<HistoryEntry[] | null>(null);
 
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
-        const res = await fetch("/api/recent", { cache: "no-store" });
-        const data = (await res.json()) as { items?: RecentItem[] };
+        const res = await fetch("/api/history?limit=9", { cache: "no-store" });
+        const data = (await res.json()) as { items?: HistoryEntry[] };
         if (alive) setItems(data.items ?? []);
       } catch {
         if (alive) setItems([]);
@@ -69,11 +76,11 @@ export function RecentAnalyses() {
             History
           </div>
           <h2 className="font-display text-2xl font-extrabold tracking-tight text-ink sm:text-[28px]">
-            Recent analyses
+            Repositories you&rsquo;ve analysed
           </h2>
           <p className="mt-2 text-[14.5px] leading-relaxed text-ink-2">
-            Every report is saved and shareable by link — reopen one without
-            re-running the scan.
+            Every report is saved and shareable by link. Reopen one from here, or pick
+            a repository straight from the search field above — no re-scan, no waiting.
           </p>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-pill border border-hair bg-surface px-3 py-1.5 text-[12px] font-medium text-ink-3">
@@ -109,8 +116,14 @@ export function RecentAnalyses() {
                     </span>
                     <span className="inline-flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      {relativeTime(item.createdAt)}
+                      {relativeTime(item.lastAnalyzedAt)}
                     </span>
+                    {item.runCount > 1 && (
+                      <span className="inline-flex items-center gap-1">
+                        <RotateCw className="h-3 w-3" />
+                        {item.runCount} runs
+                      </span>
+                    )}
                   </div>
                 </div>
                 {item.healthScore !== null && <ScorePill score={item.healthScore} />}

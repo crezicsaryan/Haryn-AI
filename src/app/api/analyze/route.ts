@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { parseGitHubUrl } from "@/lib/validation";
 import { runAnalysis } from "@/lib/analyze";
 import { completeAnalysis, createAnalysis, failAnalysis } from "@/lib/store";
+import { saveGraph } from "@/lib/graph/store";
 import { GitHubError } from "@/lib/github";
 import { clientKey, RATE_LIMITS, rateLimit } from "@/lib/ratelimit";
 import { makeId } from "@/lib/utils";
@@ -85,8 +86,27 @@ export async function POST(req: NextRequest) {
       });
 
       try {
-        const { report, index } = await runAnalysis(parsed.repo, send, { id });
+        const { report, index, graph } = await runAnalysis(parsed.repo, send, { id });
         await completeAnalysis(report, index);
+
+        // The graph is stored separately and its failure is contained: the
+        // report is already complete and valid without it.
+        if (graph && graph.nodes.length) {
+          try {
+            await saveGraph(id, graph.nodes, graph.edges);
+          } catch (graphErr) {
+            send({
+              type: "progress",
+              stage: "graph",
+              label: `Knowledge graph could not be stored — ${
+                graphErr instanceof Error ? graphErr.message : "write failed"
+              }`,
+              status: "done",
+              pct: 100,
+            });
+          }
+        }
+
         send({ type: "result", report });
       } catch (err) {
         if (err instanceof GitHubError) {

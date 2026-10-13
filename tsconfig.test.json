@@ -1,0 +1,28 @@
+{
+  "//": "Compiles the library to CommonJS so Node's built-in test runner can load it. Node's ESM resolver requires explicit file extensions, which TypeScript sources do not use; emitting CJS sidesteps that without adding a test framework or a bundler.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["esnext", "dom"],
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "outDir": ".test-build",
+    "rootDir": "src",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": false,
+    "incremental": false,
+    "sourceMap": true,
+    "types": ["node"]
+  },
+  "include": ["src/lib/**/*.ts", "src/types/**/*.d.ts"],
+  "exclude": [
+    "node_modules",
+    ".next",
+    "src/lib/**/*.tsx",
+    "src/app/**",
+    "src/components/**"
+  ]
+}
