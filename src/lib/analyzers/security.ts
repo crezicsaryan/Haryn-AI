@@ -1,5 +1,6 @@
 import type { RawFinding, SourceFile } from "./types";
 import { redact, snippet } from "./types";
+import { maskNonCode } from "./code-mask";
 
 /* ------------------------------------------------------------------ */
 /* Secret detection                                                    */
@@ -141,6 +142,22 @@ interface CodeRule {
   languages?: string[];
   /** Marks the finding as a heuristic signal rather than a proven defect. */
   isPotential?: boolean;
+  /**
+   * Match against code only — string literals and comments are masked out first.
+   *
+   * Set this on rules that target an executable construct. A `description` or
+   * `recommendation` string that quotes the pattern (as every rule in this file
+   * does) otherwise matches its own rule, and so does any string literal in the
+   * scanned repository. Leave it unset for rules whose subject *is* a literal —
+   * SQL text, hash algorithm names, TLS flags and CORS headers all live inside
+   * strings, so masking would silence them entirely.
+   *
+   * `"keep-strings"` masks comments and regex literals but leaves string literals
+   * intact. That is the right mode for a rule whose subject lives in a string but
+   * which must still not fire on a regex that merely lists the keywords — as the
+   * unbounded-query detector does, and which this rule used to report.
+   */
+  codeOnly?: boolean | "keep-strings";
 }
 
 const CODE_RULES: CodeRule[] = [
@@ -155,6 +172,7 @@ const CODE_RULES: CodeRule[] = [
     impact: "An attacker able to influence the evaluated string can run arbitrary code.",
     recommendation:
       "Replace eval() with an explicit parser or a safe dispatch table. If unavoidable, whitelist the accepted input.",
+    codeOnly: true,
   },
   {
     id: "new-function",
@@ -166,6 +184,7 @@ const CODE_RULES: CodeRule[] = [
       "new Function() compiles a string into executable code, mirroring the risk profile of eval().",
     impact: "Potential code injection if any argument derives from user input.",
     recommendation: "Prefer a static implementation or a sandboxed interpreter.",
+    codeOnly: true,
   },
   {
     id: "dangerous-html",
@@ -178,6 +197,7 @@ const CODE_RULES: CodeRule[] = [
     impact: "Reflected or stored XSS if the content includes user-controlled data.",
     recommendation:
       "Sanitise with a library such as DOMPurify, or render text content instead of raw HTML.",
+    codeOnly: true,
   },
   {
     id: "child-process",
@@ -194,7 +214,11 @@ const CODE_RULES: CodeRule[] = [
   {
     id: "sql-concat",
     title: "SQL built by string concatenation",
-    re: /(?:SELECT|INSERT|UPDATE|DELETE)[^;'"`\n]*(?:\+\s*\w|`\s*\$\{|\$\{)/gi,
+    // The keyword must begin a SQL literal, i.e. sit right after a quote, a
+    // backtick, an opening paren, `=` or a comma. Without that anchor the rule
+    // also fires on a *regex literal* that merely lists SQL keywords — as in the
+    // unbounded-query detector, which is how this rule flagged its own codebase.
+    re: /(?:^|(?<=[\s'"`(,=]))(?:SELECT|INSERT|UPDATE|DELETE)[^;'"`\n]*(?:\+\s*\w|`\s*\$\{|\$\{)/gi,
     severity: "high",
     confidence: 0.5,
     description:
@@ -202,6 +226,7 @@ const CODE_RULES: CodeRule[] = [
     impact: "SQL injection if the interpolated value is user-controlled.",
     recommendation:
       "Use parameterised queries / prepared statements instead of building SQL by concatenation.",
+    codeOnly: "keep-strings",
   },
   {
     id: "cors-wildcard",
@@ -238,6 +263,7 @@ const CODE_RULES: CodeRule[] = [
     impact: "Remote code execution when processing attacker-supplied payloads.",
     recommendation:
       "Use JSON or yaml.safe_load, and never deserialise data from an untrusted source.",
+    codeOnly: true,
   },
   {
     id: "weak-hash",
@@ -262,6 +288,7 @@ const CODE_RULES: CodeRule[] = [
     impact: "Predictable tokens enabling session or reset-token forgery.",
     recommendation: "Use crypto.randomUUID() or crypto.getRandomValues().",
     isPotential: true,
+    codeOnly: true,
   },
 ];
 
@@ -365,8 +392,16 @@ export function analyzeSecurity(files: SourceFile[]): RawFinding[] {
         const line = file.lines[i];
         if (line.length > 2000) continue;
         if (/^\s*(\/\/|#|\*)/.test(line)) continue;
+        // A code-only rule must not match inside a string literal, a comment or a
+        // regex literal. Evidence still comes from the original line.
+        const haystack =
+          rule.codeOnly === "keep-strings"
+            ? maskNonCode(line, { strings: false })
+            : rule.codeOnly
+              ? maskNonCode(line)
+              : line;
         rule.re.lastIndex = 0;
-        if (!rule.re.test(line)) continue;
+        if (!rule.re.test(haystack)) continue;
         matches++;
         if (matches > 2) break;
         push(

@@ -1,5 +1,6 @@
 import type { RawFinding, SourceFile } from "./types";
 import { snippet } from "./types";
+import { maskNonCode } from "./code-mask";
 
 /**
  * Bug detection.
@@ -73,6 +74,42 @@ function isBlankOrComment(line: string): boolean {
   );
 }
 
+/**
+ * True when a `for` header compares a *bare index* with `<=` against a
+ * collection's length/size/count — the classic one-past-the-end loop.
+ *
+ * The left operand has to be a plain identifier. `i + 6 <= file.lines.length`
+ * is a correct bound: it guarantees a six-line window fits, and `i` never
+ * reaches `length`. Treating any `<= …length` as off-by-one is how this rule
+ * ended up reporting its own source, so the shape of the condition is parsed
+ * rather than pattern-matched.
+ */
+function loopRunsPastEnd(line: string): boolean {
+  const header = line.match(/\bfor\s*\(([^)]*)\)/);
+  if (!header) return false;
+  const parts = header[1].split(";");
+  if (parts.length < 2) return false;
+  const condition = parts[1].trim();
+  return /^[A-Za-z_$][\w$]*\s*<=\s*[\w.$[\]]*\.(?:length|size|count)$/.test(
+    condition
+  );
+}
+
+/**
+ * True when the call on line `i` is handed to `Promise.all` (or a sibling), on
+ * the same line or in the two lines above it — the wrapper is usually written on
+ * its own line. `await Promise.all(items.map(async …))` is the correct way to run
+ * an async mapper, so it must not be reported as a bug.
+ */
+function awaitedInParallel(lines: string[], i: number): boolean {
+  for (let k = Math.max(0, i - 2); k <= i; k++) {
+    if (/Promise\s*\.\s*(?:all|allSettled|race|any)\s*\(/.test(lines[k])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Index of the line that closes the block opened on `start`. */
 function blockEnd(lines: string[], start: number, limit = 600): number {
   let depth = 0;
@@ -120,10 +157,15 @@ function detectBraceLangs(ctx: Ctx): void {
     if (isBlankOrComment(line)) continue;
     const ln = i + 1;
 
+    // Code-only view of the line: a `for` loop quoted inside a string literal
+    // (a test fixture, a rule's own documentation) is not a loop. Evidence is
+    // still taken from the original line.
+    const code = maskNonCode(line);
+
     /* --- Off-by-one loop bound ------------------------------------- */
     // `i <= arr.length` runs one past the end. `<= arr.length - 1` is correct
-    // and is deliberately not matched.
-    if (/<=\s*[\w.$[\]]*\.(?:length|size|count)\s*;/.test(line) && /\bfor\s*\(/.test(line)) {
+    // and is deliberately not matched; so is any compound bound.
+    if (loopRunsPastEnd(code)) {
       push(ctx, "off-by-one-loop-bound", {
         severity: "high",
         title: "Loop bound runs one past the end",
@@ -143,7 +185,7 @@ function detectBraceLangs(ctx: Ctx): void {
     /* --- Assignment inside a condition ----------------------------- */
     // `if (x = y)` — almost always a typo for `===`. Arrow functions (`=>`) and
     // all comparison operators are excluded by requiring a non-`=` after the `=`.
-    if (/\b(if|while)\s*\(\s*[A-Za-z_$][\w$.\[\]]*\s*=\s*[^=]/.test(line)) {
+    if (/\b(if|while)\s*\(\s*[A-Za-z_$][\w$.\[\]]*\s*=\s*[^=]/.test(code)) {
       push(ctx, "assignment-in-condition", {
         severity: "high",
         title: "Assignment used as a condition",
@@ -161,7 +203,7 @@ function detectBraceLangs(ctx: Ctx): void {
     }
 
     /* --- Empty catch ----------------------------------------------- */
-    if (/\bcatch\s*(?:\([^)]*\))?\s*\{\s*\}/.test(line)) {
+    if (/\bcatch\s*(?:\([^)]*\))?\s*\{\s*\}/.test(code)) {
       push(ctx, "empty-catch", {
         severity: "medium",
         title: "Empty catch block swallows the error",
@@ -176,7 +218,7 @@ function detectBraceLangs(ctx: Ctx): void {
           "Log the error with context, rethrow it, or convert it into a typed result the caller must handle.",
         confidence: 0.9,
       });
-    } else if (/\bcatch\s*(?:\([^)]*\))?\s*\{\s*$/.test(line)) {
+    } else if (/\bcatch\s*(?:\([^)]*\))?\s*\{\s*$/.test(code)) {
       // Multi-line: only whitespace or a comment before the closing brace.
       let j = i + 1;
       while (j < lines.length && isBlankOrComment(lines[j])) j++;
@@ -199,7 +241,7 @@ function detectBraceLangs(ctx: Ctx): void {
     }
 
     /* --- Unreachable code after return / throw --------------------- */
-    if (/^\s*(return|throw)\b[^;]*;\s*$/.test(line)) {
+    if (/^\s*(return|throw)\b[^;]*;\s*$/.test(code)) {
       let j = i + 1;
       while (j < lines.length && isBlankOrComment(lines[j])) j++;
       const next = lines[j]?.trim() ?? "";
@@ -249,7 +291,9 @@ function detectBraceLangs(ctx: Ctx): void {
     }
 
     /* --- Async callback in map / forEach ---------------------------- */
-    if (/\.map\(\s*async\b/.test(line)) {
+    // `code` is the masked line: this rule's own recommendation string quotes
+    // `.map(async …)`, and a string literal is not a call site.
+    if (/\.map\(\s*async\b/.test(code) && !awaitedInParallel(lines, i)) {
       push(ctx, "async-in-map", {
         severity: "high",
         title: "Async callback passed to map()",
@@ -266,7 +310,7 @@ function detectBraceLangs(ctx: Ctx): void {
       });
     }
 
-    if (/\.forEach\(\s*async\b/.test(line)) {
+    if (/\.forEach\(\s*async\b/.test(code) && !awaitedInParallel(lines, i)) {
       push(ctx, "async-in-foreach", {
         severity: "high",
         title: "Async callback passed to forEach()",
@@ -284,7 +328,7 @@ function detectBraceLangs(ctx: Ctx): void {
     }
 
     /* --- return inside finally -------------------------------------- */
-    if (/\bfinally\s*\{/.test(line)) {
+    if (/\bfinally\s*\{/.test(code)) {
       const end = blockEnd(lines, i);
       if (end > i) {
         for (let j = i + 1; j < end; j++) {
@@ -310,7 +354,7 @@ function detectBraceLangs(ctx: Ctx): void {
     }
 
     /* --- indexOf result used directly as an index -------------------- */
-    if (/[\w.$[\]]+\[[^\]]*\.indexOf\(/.test(line)) {
+    if (/[\w.$[\]]+\[[^\]]*\.indexOf\(/.test(code)) {
       push(ctx, "indexof-unchecked", {
         severity: "medium",
         title: "indexOf() result used as an index without checking",
@@ -328,7 +372,7 @@ function detectBraceLangs(ctx: Ctx): void {
     }
 
     /* --- JSON.parse outside try -------------------------------------- */
-    if (/JSON\.parse\s*\(/.test(line) && !inTry(tryBlocks, i)) {
+    if (/JSON\.parse\s*\(/.test(code) && !inTry(tryBlocks, i)) {
       push(ctx, "unguarded-json-parse", {
         severity: "low",
         title: "JSON.parse outside a try block",
@@ -345,7 +389,7 @@ function detectBraceLangs(ctx: Ctx): void {
     }
 
     /* --- while (true) with no exit ---------------------------------- */
-    if (/while\s*\(\s*true\s*\)/.test(line)) {
+    if (/while\s*\(\s*true\s*\)/.test(code)) {
       const end = blockEnd(lines, i);
       const body = end > i ? lines.slice(i, end + 1).join("\n") : line;
       if (!/\b(break|return|throw)\b/.test(body)) {
@@ -461,8 +505,11 @@ function detectPython(ctx: Ctx): void {
     if (isBlankOrComment(line)) continue;
     const ln = i + 1;
 
+    // Code-only view — see the note in `detectBraceLangs`.
+    const code = maskNonCode(line);
+
     /* --- Mutable default argument ---------------------------------- */
-    if (/^\s*def\s+\w+\s*\([^)]*=\s*(\[\]|\{\}|set\(\))/.test(line)) {
+    if (/^\s*def\s+\w+\s*\([^)]*=\s*(\[\]|\{\}|set\(\))/.test(code)) {
       push(ctx, "mutable-default-argument", {
         severity: "high",
         title: "Mutable default argument",
@@ -479,7 +526,7 @@ function detectPython(ctx: Ctx): void {
     }
 
     /* --- Bare except ------------------------------------------------ */
-    if (/^\s*except\s*:/.test(line)) {
+    if (/^\s*except\s*:/.test(code)) {
       push(ctx, "bare-except", {
         severity: "medium",
         title: "Bare except clause",
@@ -522,7 +569,7 @@ function detectPython(ctx: Ctx): void {
     }
 
     /* --- Comparison with None using == ------------------------------ */
-    if (/[!=]=\s*None\b|\bNone\s*[!=]=/.test(line) && !/\bis\s+not\b|\bis\b/.test(line)) {
+    if (/[!=]=\s*None\b|\bNone\s*[!=]=/.test(code) && !/\bis\s+not\b|\bis\b/.test(code)) {
       push(ctx, "none-equality", {
         severity: "low",
         title: "None compared with == instead of is",

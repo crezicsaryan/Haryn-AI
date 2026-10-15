@@ -1,5 +1,6 @@
 import type { RawFinding, SourceFile } from "./types";
 import { snippet } from "./types";
+import { maskNonCode } from "./code-mask";
 
 /* ------------------------------------------------------------------ */
 /* Tunables                                                            */
@@ -27,7 +28,11 @@ function isCommentLine(line: string): boolean {
 }
 
 function decisionPoints(line: string): number {
-  const t = line;
+  // Counted on the code-only view. `&&`, `||` and `|` inside a string or a regex
+  // literal are not branches, and counting them inflated the complexity of any
+  // function that contains a pattern — a six-line helper with one
+  // alternation-heavy regex was reported as complexity 20.
+  const t = maskNonCode(line);
   const re =
     /\b(if|else\s+if|elif|for|while|case|when|catch|except|rescue)\b|\?\?|\?\.|&&|\|\||\?(?![.?])/g;
   return (t.match(re) ?? []).length;
