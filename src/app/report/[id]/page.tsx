@@ -58,7 +58,13 @@ export default async function ReportPage({ params }: PageParams) {
   if (!report) return <Missing />;
 
   return (
-    <main className="relative min-h-screen overflow-hidden">
+    // `overflow-clip`, not `overflow-hidden`. Both clip the same, but
+    // `overflow: hidden` makes this element a scroll container, which silently
+    // disables `position: sticky` for every descendant — the report toolbar, the
+    // view rail and the AI pane all declare sticky and none of them stuck.
+    // `overflow: clip` does not create a scroll container, so sticky works.
+    // (Aurora already clips its own blobs, so nothing needs hiding here anyway.)
+    <main className="relative min-h-screen overflow-clip">
       <Aurora variant="report" />
       <div className="relative">
         <ReportView report={report} />

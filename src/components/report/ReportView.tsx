@@ -338,12 +338,9 @@ export function ReportView({ report }: { report: Report }) {
 
   return (
     <div className="min-h-screen">
-      <ReportToolbar
-        report={report}
-        sections={sections.map(({ id, label }) => ({ id, label }))}
-        active={view}
-        onSelect={setView}
-      />
+      {/* The view rail below is the only navigation surface — the toolbar no
+          longer repeats the section list. */}
+      <ReportToolbar report={report} />
 
       <main className="mx-auto max-w-[1560px] px-4 pb-20 pt-6 sm:px-6">
         {/* Mobile: pick the report or the agent (the agent pane is xl+ only). */}
