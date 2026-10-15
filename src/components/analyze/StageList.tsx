@@ -22,13 +22,37 @@ export function StageList({ rows, pct }: { rows: StageRow[]; pct: number }) {
       </div>
 
       <ul className="space-y-1">
-        {rows.map((r) => (
-          <StageItem key={r.stage} row={r} />
+        {rows.map((row) => (
+          <StageItem key={row.stage} row={row} />
         ))}
       </ul>
     </div>
   );
 }
+
+/** The leading status marker: a tick, a spinner, or a dot. */
+function StageStatusIcon({ status }: { status: StageRow["status"] }) {
+  return (
+    <span
+      className={cn(
+        "grid h-6 w-6 shrink-0 place-items-center rounded-full border transition-colors",
+        status === "done" && "border-brand-500 bg-brand-500 text-white",
+        status === "active" && "border-brand-400 bg-surface text-brand-600",
+        status === "pending" && "border-hair-strong bg-surface text-ink-4"
+      )}
+    >
+      {status === "done" && <Check className="h-3.5 w-3.5" />}
+      {status === "active" && <Loader2 className="h-3.5 w-3.5 animate-spin-slow" />}
+      {status === "pending" && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+    </span>
+  );
+}
+
+const LABEL_TONE: Record<StageRow["status"], string> = {
+  active: "font-semibold text-ink",
+  done: "text-ink-2",
+  pending: "text-ink-3",
+};
 
 function StageItem({ row }: { row: StageRow }) {
   return (
@@ -36,40 +60,11 @@ function StageItem({ row }: { row: StageRow }) {
       className={cn(
         "flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
         row.status === "active" && "bg-brand-50/70",
-        row.status === "done" && "opacity-100",
         row.status === "pending" && "opacity-55"
       )}
     >
-      <span
-        className={cn(
-          "grid h-6 w-6 shrink-0 place-items-center rounded-full border transition-colors",
-          row.status === "done" && "border-brand-500 bg-brand-500 text-white",
-          row.status === "active" &&
-            "border-brand-400 bg-surface text-brand-600",
-          row.status === "pending" &&
-            "border-hair-strong bg-surface text-ink-4"
-        )}
-      >
-        {row.status === "done" && <Check className="h-3.5 w-3.5" />}
-        {row.status === "active" && (
-          <Loader2 className="h-3.5 w-3.5 animate-spin-slow" />
-        )}
-        {row.status === "pending" && (
-          <span className="h-1.5 w-1.5 rounded-full bg-current" />
-        )}
-      </span>
-      <span
-        className={cn(
-          "text-[13.5px]",
-          row.status === "active"
-            ? "font-semibold text-ink"
-            : row.status === "done"
-              ? "text-ink-2"
-              : "text-ink-3"
-        )}
-      >
-        {row.label}
-      </span>
+      <StageStatusIcon status={row.status} />
+      <span className={cn("text-[13.5px]", LABEL_TONE[row.status])}>{row.label}</span>
     </li>
   );
 }

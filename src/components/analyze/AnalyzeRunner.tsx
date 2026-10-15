@@ -2,24 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { GitHubMark } from "@/components/ui/GitHubMark";
-import { Logo } from "@/components/ui/Logo";
 import {
   applyProgress,
   errorFromUnknown,
-  formatElapsed,
   initialStageRows,
   markAllDone,
   nextPercent,
   readAnalysisStream,
-  shortenRepoUrl,
   streamError,
   type StageRow,
 } from "@/lib/analyze-progress";
 import type { ErrorCode, StreamEvent } from "@/lib/types";
-import { StageList } from "./StageList";
+import { AnalysisHeader } from "./AnalysisHeader";
 import { AnalysisError } from "./AnalysisError";
 import { NoRepository } from "./NoRepository";
+import { StageList } from "./StageList";
 
 /** Pause before routing, so the completed stage list is readable. */
 const RESULT_PAUSE_MS = 550;
@@ -120,23 +117,7 @@ export function AnalyzeRunner() {
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-14 sm:py-20">
-      <header className="mb-8 text-center">
-        <div className="mb-4 flex justify-center">
-          <Logo href={null} />
-        </div>
-        <h1 className="font-display text-2xl font-extrabold tracking-tight text-ink sm:text-[30px]">
-          {error ? "Analysis stopped" : "Analyzing repository"}
-        </h1>
-        <p className="mt-2 inline-flex max-w-full items-center gap-2 text-[13.5px] text-ink-2">
-          <GitHubMark className="h-3.5 w-3.5 shrink-0 text-ink-3" />
-          <span className="truncate font-mono">{shortenRepoUrl(url)}</span>
-        </p>
-        {!error && (
-          <p className="mt-1 font-mono text-[12px] text-ink-3">
-            {formatElapsed(elapsed)} elapsed
-          </p>
-        )}
-      </header>
+      <AnalysisHeader url={url} elapsed={elapsed} failed={Boolean(error)} />
 
       <div className="rounded-xl border border-hair bg-surface p-5 shadow-md sm:p-7">
         {error ? (

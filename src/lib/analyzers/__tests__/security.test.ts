@@ -42,10 +42,10 @@ test("flags a secret that lives inside a string literal", () => {
 });
 
 test("flags SQL built by interpolation inside a template literal", () => {
-  // The fixture is assembled from parts on purpose: written out verbatim, this
-  // line would itself be an interpolated SQL statement in the source, and the
-  // analyzer would (correctly) report this test file.
-  const statement = ["SELECT * FROM t WHERE id = ", "${id}"].join("");
+  // Assembled from parts on purpose: written out verbatim, this line would be an
+  // interpolated SQL statement in the source, and the analyzer would (correctly)
+  // report this test file. Split so no single literal reads as a SQL statement.
+  const statement = ["SELECT * ", "FROM t WHERE id = ", "${id}"].join("");
   const source = "const q = `" + statement + "`;";
   const found = titles([src("src/db.js", source)]);
   assert.ok(found.includes("SQL built by string concatenation"));

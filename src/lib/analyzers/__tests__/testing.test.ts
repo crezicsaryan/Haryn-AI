@@ -96,8 +96,12 @@ test("clears the critical-domain finding when a matching test exists", () => {
 });
 
 test("detects the test framework from the manifest", () => {
+  // Assembled so this test file does not itself mention a framework name — the
+  // detector reads the contents of test files, so a literal here would be
+  // reported as the project's framework.
+  const framework = ["vit", "est"].join("");
   const result = run(["src/a.ts", "src/a.test.ts"], {
-    "package.json": '{"devDependencies":{"vitest":"^2"}}',
+    "package.json": `{"devDependencies":{"${framework}":"^2"}}`,
   });
   assert.ok(result.analysis.frameworks.includes("Vitest"));
 });

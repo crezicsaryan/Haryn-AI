@@ -100,7 +100,10 @@ export function analyzePerformance(files: SourceFile[]): RawFinding[] {
       }
 
       // Sequential awaits inside a loop → should be parallelised.
-      if (/await\s+/.test(body) && seqAwait < 2 && file.language !== "Python") {
+      // A stream drain is the exception: `await reader.read()` must run one read
+      // at a time, so there is nothing to parallelise.
+      const streamRead = /\bawait\s+[\w.$]*\.read\s*\(/.test(body);
+      if (/await\s+/.test(body) && !streamRead && seqAwait < 2 && file.language !== "Python") {
         seqAwait++;
         push(
           {

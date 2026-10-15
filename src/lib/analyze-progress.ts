@@ -121,15 +121,9 @@ export async function readAnalysisStream(
     for (const event of parsed.events) onEvent(event);
   }
 
-  // A final frame may arrive without a trailing newline.
-  const tail = buffer.trim();
-  if (tail) {
-    try {
-      onEvent(JSON.parse(tail) as StreamEvent);
-    } catch {
-      // Ignored: a partial trailing frame carries no usable event.
-    }
-  }
+  // A final frame may arrive without a trailing newline. Appending one lets the
+  // same parser handle it, including its malformed-frame guard.
+  for (const event of parseStreamChunk(`${buffer}\n`).events) onEvent(event);
 }
 
 /** Normalise anything thrown by `fetch` into the shape the UI renders. */
