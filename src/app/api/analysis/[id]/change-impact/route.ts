@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { getReport } from "@/lib/store";
-import { analyseChangeImpact, findingsForImpact, getNodesForFile } from "@/lib/graph/store";
+import {
+  analyseChangeImpact,
+  ensureGraphSeeded,
+  findingsForImpact,
+  getNodesForFile,
+} from "@/lib/graph/store";
 import { apiError, isValidId, json, parseIntParam } from "@/lib/graph/api";
 import { clientKey, RATE_LIMITS, rateLimit } from "@/lib/ratelimit";
 
@@ -24,6 +29,9 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   if (!isValidId(id)) {
     return apiError("INVALID_URL", "That analysis id is not valid.", 400);
   }
+
+  // See the collection route: the bundled sample's graph is seeded on first read.
+  await ensureGraphSeeded(id);
 
   const rl = rateLimit(clientKey(req, "impact"), RATE_LIMITS.chat, RATE_LIMITS.windowMs);
   if (!rl.ok) {

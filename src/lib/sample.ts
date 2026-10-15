@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import { CATEGORIES, SCORE_WEIGHTS } from "./constants";
 import { languageColor } from "./constants";
+import { sampleGraphSummary } from "./graph/sample-graph";
 
 /**
  * A fully deterministic sample analysis.
@@ -676,6 +677,9 @@ export function buildSampleReport(): Report {
         "React Storefront → API Routes → Controllers → Services → Models / Repositories → External Integrations. Built with React, Express, Prisma, PostgreSQL.",
     },
     activity: buildSampleActivity(),
+    // Summary counts only; the nodes and edges live in `graph/sample-graph.ts`
+    // and are seeded into the graph tables on first read.
+    graph: sampleGraphSummary(),
     recommendations: [
       { rank: 1, severity: "critical", title: "Potential secret exposure", category: "security", findingId: "f_sample_01", filePath: "config/database.js" },
       { rank: 2, severity: "critical", title: "2 vulnerable dependencies detected", category: "dependency", findingId: "f_sample_11" },

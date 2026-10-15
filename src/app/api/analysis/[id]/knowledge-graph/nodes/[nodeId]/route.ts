@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getReport } from "@/lib/store";
-import { getNeighbourhood } from "@/lib/graph/store";
+import { getNeighbourhood, ensureGraphSeeded } from "@/lib/graph/store";
 import { apiError, isValidId, json } from "@/lib/graph/api";
 
 export const runtime = "nodejs";
@@ -23,6 +23,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   if (!isValidId(id) || !isValidId(nodeId)) {
     return apiError("INVALID_URL", "That node id is not valid.", 400);
   }
+
+  // See the collection route: the bundled sample's graph is seeded on first read.
+  await ensureGraphSeeded(id);
 
   const neighbourhood = await getNeighbourhood(id, nodeId);
   if (!neighbourhood) {

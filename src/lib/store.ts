@@ -194,6 +194,49 @@ export async function failAnalysis(
 /* Reads                                                               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Register the bundled sample as a stored analysis.
+ *
+ * The sample report itself is a code-level fixture and needs no row. Its
+ * *knowledge graph* does: `graph_nodes` and `graph_edges` both reference
+ * `analyses(id)`, so a graph cannot exist for an analysis that has no row. This
+ * writes the one row the foreign key needs, so every graph route keeps reading
+ * the database as usual instead of each growing a sample branch.
+ *
+ * Idempotent, and the sample is excluded from the history list — it is a demo
+ * fixture, not something the user analysed.
+ */
+export async function ensureSampleReportRow(): Promise<void> {
+  const report = buildSampleReport();
+  const count = (severity: string) =>
+    report.findings.filter((f) => f.severity === severity).length;
+
+  getDb()
+    .prepare(
+      `INSERT OR IGNORE INTO analyses
+         (id, repo_owner, repo_name, repo_full_name, repo_url, default_branch,
+          status, health_score, finding_count, critical_count, high_count,
+          file_count, duration_ms, created_at, completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      SAMPLE_ID,
+      report.repo.owner,
+      report.repo.name,
+      report.repo.fullName,
+      report.repo.url,
+      report.repo.defaultBranch,
+      report.healthScore,
+      report.findings.length,
+      count("critical"),
+      count("high"),
+      report.structure.fileCount,
+      report.durationMs,
+      report.createdAt,
+      report.completedAt
+    );
+}
+
 export async function getReport(id: string): Promise<Report | null> {
   // The bundled sample is a code-level fixture, always resolvable.
   if (id === SAMPLE_ID) return buildSampleReport();
@@ -267,12 +310,13 @@ export async function listRepoHistory(
                 COUNT(*)    OVER (PARTITION BY repo_full_name)                     AS run_count
            FROM analyses
           WHERE status = 'completed'
+            AND id <> ?
             ${needle ? "AND LOWER(repo_full_name) LIKE LOWER(?) ESCAPE '\\'" : ""}
        ) WHERE rn = 1
        ORDER BY created_at DESC
        LIMIT ?`
     )
-    .all(...(needle ? [`%${escaped}%`, limit] : [limit]));
+    .all(...(needle ? [SAMPLE_ID, `%${escaped}%`, limit] : [SAMPLE_ID, limit]));
 
   return rows.map((r) => ({
     id: asString(r.id),

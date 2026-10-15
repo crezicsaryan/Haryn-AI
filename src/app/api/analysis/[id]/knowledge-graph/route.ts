@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { hasReport } from "@/lib/store";
-import { graphStats, loadGraph } from "@/lib/graph/store";
+import { graphStats, loadGraph, ensureGraphSeeded } from "@/lib/graph/store";
 import {
   apiError,
   EDGE_TYPES,
@@ -34,6 +34,10 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   if (!(await hasReport(id))) {
     return apiError("ANALYSIS_FAILED", "That analysis could not be found.", 404);
   }
+
+  // The bundled sample is a code-level fixture that is never analysed, so its
+  // graph is seeded on first read rather than written by an analysis run.
+  await ensureGraphSeeded(id);
 
   const url = new URL(req.url);
   const nodeTypes = parseCsv(url.searchParams.get("nodeTypes"), NODE_TYPES);

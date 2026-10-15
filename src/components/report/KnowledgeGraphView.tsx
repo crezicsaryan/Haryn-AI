@@ -215,6 +215,27 @@ export function KnowledgeGraphView({
   );
 }
 
+/**
+ * Canvas height for the graph.
+ *
+ * A fixed 640px put the bottom of the graph off-screen on a short laptop. This
+ * keeps the generous height on a large display but never claims more than about
+ * two thirds of the viewport, with a floor so the graph stays usable on a phone.
+ */
+function useCanvasHeight(): number {
+  const [height, setHeight] = useState(640);
+
+  useEffect(() => {
+    const measure = () =>
+      setHeight(Math.round(Math.min(640, Math.max(360, window.innerHeight * 0.68))));
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  return height;
+}
+
 function KnowledgeGraphInner({
   analysisId,
   repoUrl,
@@ -248,6 +269,14 @@ function KnowledgeGraphInner({
    * subgraph where an exact edge routing matters more than the shape.
    */
   const [view, setView] = useState<"2d" | "3d">("3d");
+  /**
+   * Canvas height.
+   *
+   * Capped against the viewport, not fixed at 640. A fixed height meant that on a
+   * laptop the canvas began around 840px down a 900px screen, so the view opened
+   * on controls and a legend with the graph itself out of sight.
+   */
+  const canvasHeight = useCanvasHeight();
   /** Node types hidden from the canvas. Client-side, so toggling is instant. */
   const [hiddenTypes, setHiddenTypes] = useState<Set<GraphNodeType>>(
     new Set(DEFAULT_HIDDEN)
@@ -608,96 +637,86 @@ function KnowledgeGraphInner({
           </span>
         </div>
 
-        {availableNodeTypes.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {availableNodeTypes.map(([type, count]) => {
-              const meta = NODE_TYPE_META[type];
-              const on = !hiddenTypes.has(type);
-              return (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => toggle(hiddenTypes, type, setHiddenTypes)}
-                  aria-pressed={on}
-                  title={on ? "Hide this entity type" : "Show this entity type"}
-                  className={cn(
-                    "inline-flex cursor-pointer items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[11.5px] font-medium transition-colors",
-                    on
-                      ? "border-ink bg-ink text-white"
-                      : "border-hair-strong bg-surface text-ink-3 line-through decoration-1 hover:text-ink"
-                  )}
-                >
-                  <span
-                    className="h-2 w-2 rounded-full"
-                    style={{ background: meta.hex, opacity: on ? 1 : 0.4 }}
-                  />
-                  {meta.label}
-                  <span className="opacity-60">{count}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {/*
+          Collapsed by default. Expanded, these two rows of chips pushed the
+          canvas a further ~160px down the page — enough that on a laptop the
+          view opened showing controls and a legend and no graph at all.
+        */}
+        {(availableNodeTypes.length > 0 || availableEdgeTypes.length > 0) && (
+          <details className="mt-2.5">
+            <summary className="cursor-pointer text-[11.5px] font-medium text-ink-3 hover:text-ink">
+              Filters
+              <span className="ml-1.5 font-normal text-ink-4">
+                {availableNodeTypes.length} entity types · {availableEdgeTypes.length}{" "}
+                relationships
+                {hiddenTypes.size !== DEFAULT_HIDDEN.length || edgeTypes.size > 0
+                  ? " · narrowed"
+                  : ""}
+              </span>
+            </summary>
 
-        {availableEdgeTypes.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {availableEdgeTypes.map(([type, count]) => {
-              const meta = EDGE_TYPE_META[type];
-              const on = edgeTypes.has(type);
-              return (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => toggle(edgeTypes, type, setEdgeTypes)}
-                  aria-pressed={on}
-                  className={cn(
-                    "inline-flex cursor-pointer items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                    on ? "border-ink bg-ink text-white" : "border-hair bg-surface text-ink-3 hover:text-ink"
-                  )}
-                >
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.hex }} />
-                  {meta.label}
-                  <span className="opacity-60">{count}</span>
-                </button>
-              );
-            })}
-          </div>
+            <div className="mt-2 space-y-2">
+              {availableNodeTypes.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {availableNodeTypes.map(([type, count]) => {
+                    const meta = NODE_TYPE_META[type];
+                    const on = !hiddenTypes.has(type);
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => toggle(hiddenTypes, type, setHiddenTypes)}
+                        aria-pressed={on}
+                        title={on ? "Hide this entity type" : "Show this entity type"}
+                        className={cn(
+                          "inline-flex cursor-pointer items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[11.5px] font-medium transition-colors",
+                          on
+                            ? "border-ink bg-ink text-white"
+                            : "border-hair-strong bg-surface text-ink-3 line-through decoration-1 hover:text-ink"
+                        )}
+                      >
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{ background: meta.hex, opacity: on ? 1 : 0.4 }}
+                        />
+                        {meta.label}
+                        <span className="opacity-60">{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {availableEdgeTypes.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {availableEdgeTypes.map(([type, count]) => {
+                    const meta = EDGE_TYPE_META[type];
+                    const on = edgeTypes.has(type);
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => toggle(edgeTypes, type, setEdgeTypes)}
+                        aria-pressed={on}
+                        className={cn(
+                          "inline-flex cursor-pointer items-center gap-1.5 rounded-pill border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                          on
+                            ? "border-ink bg-ink text-white"
+                            : "border-hair bg-surface text-ink-3 hover:text-ink"
+                        )}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.hex }} />
+                        {meta.label}
+                        <span className="opacity-60">{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </details>
         )}
       </div>
-
-      {/* ---------------- how to read it ---------------- */}
-      {view === "3d" && (
-        <div className="rounded-xl border border-hair bg-surface px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">
-            Reading the rings — each ring is one level of the codebase
-          </p>
-          <ol className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
-            {RINGS.map((ring, i) => (
-              <li key={ring.label} className="flex items-center gap-2">
-                {i > 0 && <ChevronRight className="h-3 w-3 text-ink-4" />}
-                <span className="inline-flex items-center gap-1.5 rounded-pill border border-hair bg-surface-2 px-2.5 py-1 text-[11.5px] text-ink-2">
-                  <span
-                    className="grid h-4 w-4 place-items-center rounded-full text-[9px] font-bold text-white"
-                    style={{ background: RING_TINT[i] ?? "#64748b" }}
-                  >
-                    {i + 1}
-                  </span>
-                  <span className="font-medium text-ink">{ring.label}</span>
-                  <span className="text-ink-3">
-                    {ring.types.map((t) => NODE_TYPE_META[t].label.toLowerCase()).join(", ")}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ol>
-          <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
-            A node&apos;s <strong className="font-semibold text-ink-2">size</strong> is how many
-            relationships it has — the biggest entities are the ones the codebase leans on.
-            Solid lines are confirmed by syntax; dashed lines are inferred from a name match
-            and are labelled with a question mark. Click any node to see what it connects to.
-          </p>
-        </div>
-      )}
 
       {/* ---------------- canvas + panel ---------------- */}
       {/*
@@ -714,12 +733,14 @@ function KnowledgeGraphInner({
             selected={selected}
             highlight={highlight}
             onSelect={selectNode}
+            height={canvasHeight}
           />
         ) : (
           <div
             ref={flowRef}
-            className="relative h-[640px] overflow-hidden rounded-xl border border-hair"
+            className="relative overflow-hidden rounded-xl border border-hair"
             style={{
+              height: canvasHeight,
               backgroundImage:
                 "radial-gradient(circle at 1px 1px, var(--color-hair) 1px, transparent 0)",
               backgroundSize: "22px 22px",
@@ -788,6 +809,44 @@ function KnowledgeGraphInner({
           </div>
         )}
       </div>
+
+      {/*
+        Placed *after* the canvas on purpose. This explains a layout the reader
+        has to see first; above the canvas it added ~200px and pushed the graph
+        itself below the fold, so the view opened on a legend with no graph.
+      */}
+      {view === "3d" && (
+        <div className="rounded-xl border border-hair bg-surface px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-3">
+            Reading the rings — each ring is one level of the codebase
+          </p>
+          <ol className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+            {RINGS.map((ring, i) => (
+              <li key={ring.label} className="flex items-center gap-2">
+                {i > 0 && <ChevronRight className="h-3 w-3 text-ink-4" />}
+                <span className="inline-flex items-center gap-1.5 rounded-pill border border-hair bg-surface-2 px-2.5 py-1 text-[11.5px] text-ink-2">
+                  <span
+                    className="grid h-4 w-4 place-items-center rounded-full text-[9px] font-bold text-white"
+                    style={{ background: RING_TINT[i] ?? "#64748b" }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="font-medium text-ink">{ring.label}</span>
+                  <span className="text-ink-3">
+                    {ring.types.map((t) => NODE_TYPE_META[t].label.toLowerCase()).join(", ")}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-2 text-[11.5px] leading-relaxed text-ink-3">
+            A node&apos;s <strong className="font-semibold text-ink-2">size</strong> is how many
+            relationships it has — the biggest entities are the ones the codebase leans on.
+            Solid lines are confirmed by syntax; dashed lines are inferred from a name match
+            and are labelled with a question mark. Click any node to see what it connects to.
+          </p>
+        </div>
+      )}
 
       {/* ---------------- legend ---------------- */}
       <details className="rounded-xl border border-hair bg-surface px-4 py-3">

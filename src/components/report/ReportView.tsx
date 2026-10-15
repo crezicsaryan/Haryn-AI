@@ -372,12 +372,20 @@ export function ReportView({ report }: { report: Report }) {
           })}
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[196px_minmax(0,1fr)] xl:grid-cols-[196px_minmax(0,1fr)_400px]">
+        {/*
+          `grid-cols-[minmax(0,1fr)]` is load-bearing, not decoration. Without an
+          explicit track the single column is an `auto` track, which is floored at
+          its content's *min-content* width. The view rail is a horizontal scroller
+          holding eleven `whitespace-nowrap` chips, so that floor was ~1288px —
+          the whole report was laid out 3x wider than a phone screen and clipped.
+          A `minmax(0, 1fr)` track may shrink below min-content, so it cannot.
+        */}
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[196px_minmax(0,1fr)] xl:grid-cols-[196px_minmax(0,1fr)_400px]">
           {/* ===================== VIEW RAIL ===================== */}
           <nav
             aria-label="Report views"
             className={cn(
-              "lg:sticky lg:top-24 lg:self-start",
+              "min-w-0 lg:sticky lg:top-24 lg:self-start",
               mobilePane === "agent" && "hidden lg:block"
             )}
           >

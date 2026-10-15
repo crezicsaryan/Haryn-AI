@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getNeighbours } from "@/lib/graph/store";
+import { getNeighbours, ensureGraphSeeded } from "@/lib/graph/store";
 import { apiError, isValidId, json, parseIntParam } from "@/lib/graph/api";
 
 export const runtime = "nodejs";
@@ -19,6 +19,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   if (!isValidId(id) || !isValidId(nodeId)) {
     return apiError("INVALID_URL", "That node id is not valid.", 400);
   }
+
+  // See the collection route: the bundled sample's graph is seeded on first read.
+  await ensureGraphSeeded(id);
 
   const depth = parseIntParam(new URL(req.url).searchParams.get("depth"), 1, 1, 3);
 

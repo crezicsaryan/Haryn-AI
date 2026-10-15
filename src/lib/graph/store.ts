@@ -1,4 +1,7 @@
 import { asNumber, asString, getDb, parseJson, toJson } from "../db";
+import { SAMPLE_ID } from "../sample";
+import { ensureSampleReportRow } from "../store";
+import { sampleGraph } from "./sample-graph";
 import type { Finding } from "../types";
 import type {
   ChangeImpactResult,
@@ -132,6 +135,26 @@ export async function deleteGraph(analysisId: string): Promise<void> {
 /* ------------------------------------------------------------------ */
 /* Reads                                                               */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Seed the bundled sample's graph on first read.
+ *
+ * The sample report is a code-level fixture and is never analysed, so it has no
+ * graph rows — and its knowledge-graph view, which a visitor reaches straight
+ * from the landing page, reported that the repository had no graph.
+ *
+ * The report row has to exist first: both graph tables reference `analyses(id)`,
+ * so a graph cannot be written for an analysis that has no row. Seeding lazily
+ * means every graph route (nodes, neighbours, change impact) keeps reading the
+ * database as usual instead of each growing a sample branch.
+ */
+export async function ensureGraphSeeded(analysisId: string): Promise<void> {
+  if (analysisId !== SAMPLE_ID) return;
+  if (await hasGraph(analysisId)) return;
+  await ensureSampleReportRow();
+  const { nodes, edges } = sampleGraph(analysisId);
+  await saveGraph(analysisId, nodes, edges);
+}
 
 export async function hasGraph(analysisId: string): Promise<boolean> {
   const row = getDb()

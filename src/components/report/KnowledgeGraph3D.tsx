@@ -460,7 +460,11 @@ export function KnowledgeGraph3D({
       h = height;
       canvas.width = Math.max(1, Math.floor(w * dpr));
       canvas.height = Math.max(1, Math.floor(h * dpr));
-      canvas.style.width = `${w}px`;
+      // Only the height is pinned inline. The canvas is already `w-full`, so also
+      // writing a pixel width would let it drive its own measurement: the canvas
+      // would widen its container, the ResizeObserver would read the wider
+      // container back, and the layout would settle at that inflated size — which
+      // is exactly what pushed the whole graph section off a phone screen.
       canvas.style.height = `${h}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
@@ -1015,7 +1019,9 @@ export function KnowledgeGraph3D({
 
       {/* HUD */}
       <div className="pointer-events-none absolute inset-x-3 bottom-3 flex flex-wrap items-end justify-between gap-2">
-        <span className="pointer-events-auto rounded-pill border border-hair bg-surface/92 px-2.5 py-1 text-[10.5px] text-ink-3 backdrop-blur">
+        {/* Hidden on small screens: it names mouse gestures (shift-drag, scroll)
+            that do not exist on touch, and it crowded the HUD on a phone. */}
+        <span className="pointer-events-auto hidden rounded-pill border border-hair bg-surface/92 px-2.5 py-1 text-[10.5px] text-ink-3 backdrop-blur sm:inline-block">
           drag rotate · shift-drag pan · scroll zoom · click a node
         </span>
 
