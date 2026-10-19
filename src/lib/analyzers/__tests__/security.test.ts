@@ -144,19 +144,27 @@ test("a method named exec on another object is not shell execution", () => {
   assert.ok(!found.includes("Shell command execution"));
 });
 
+/*
+ * Fixtures are assembled from parts, as everywhere else in this file: a test
+ * that writes the pattern literally is scanned when the app analyses its own
+ * repository, and the rule then reports its own test.
+ */
+const TLS_OPT = "rejectUnauthorized" + ": " + "false";
+const TLS_ENV = "NODE_TLS_REJECT_UNAUTHORIZED" + ' = "0"';
+
 test("TLS verification is reported in code, not in prose about it", () => {
   // This rule reported its own repair text — the pattern written inside a
   // quoted recommendation — and put a false high finding on a docs line.
   const prose = titles([
     src(
       "src/lib/ai/diagnose.ts",
-      'fix: "Remove the `rejectUnauthorized: false` option from the client."'
+      `fix: "Remove the \`${TLS_OPT}\` option from the client."`
     ),
   ]);
   assert.ok(!prose.includes("TLS certificate verification disabled"));
 
   const real = titles([
-    src("src/http.js", "const agent = new https.Agent({ rejectUnauthorized: false });"),
+    src("src/http.js", `const agent = new https.Agent({ ${TLS_OPT} });`),
   ]);
   assert.ok(real.includes("TLS certificate verification disabled"));
 });
@@ -164,8 +172,6 @@ test("TLS verification is reported in code, not in prose about it", () => {
 test("the env-var form of disabled TLS still reports, even though its value is a string", () => {
   // Splitting the rule is the point: this form needs strings kept, the code
   // form needs them masked, and one rule cannot do both.
-  const found = titles([
-    src("scripts/run.js", 'process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";'),
-  ]);
+  const found = titles([src("scripts/run.js", `process.env.${TLS_ENV};`)]);
   assert.ok(found.includes("TLS certificate verification disabled"));
 });
