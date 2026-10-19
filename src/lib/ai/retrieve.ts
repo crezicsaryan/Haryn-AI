@@ -136,11 +136,19 @@ export function buildRetriever(chunks: Chunk[], opts: BuildOptions = {}): Retrie
       if (sym && [...sym].some((t) => qSet.has(t))) candidateIds.add(c.id);
     }
 
-    /* 3 — A literal path in the question is a very strong signal */
-    const pathLiteral = qTerms.filter((t) => t.length > 3 && q.includes(t));
-    const literalPath = /[\w-]+\/[\w./-]+|[\w-]+\.(?:ts|tsx|js|jsx|py|go|java|rb|php|cs|rs|vue|svelte)\b/i.test(q)
-      ? q.toLowerCase()
-      : null;
+    /*
+     * 3 — A file path written in the question is a very strong signal.
+     *
+     * This used to be the whole lowercased question, so `chunk.path.includes()`
+     * could never be true and the boost never fired: asking about
+     * `src/lib/ai/diagnose.ts` returned `src/lib/chat.ts`, because generic
+     * segments (`src`, `lib`) score as path matches for every sibling file.
+     * The matched substring is the thing to look for, not the sentence.
+     */
+    const literalMatch = /[\w-]+\/[\w./-]+|[\w-]+\.(?:ts|tsx|js|jsx|py|go|java|rb|php|cs|rs|vue|svelte)\b/i.exec(
+      q
+    );
+    const literalPath = literalMatch ? literalMatch[0].toLowerCase() : null;
 
     const lexicalMap = new Map(lexical.map((s) => [s.id, s.score]));
 
@@ -216,8 +224,6 @@ export function buildRetriever(chunks: Chunk[], opts: BuildOptions = {}): Retrie
 
       if (score >= minScore) results.push({ chunk, score, reasons });
     }
-
-    void pathLiteral;
 
     /* 5 — Rank, then enforce per-file diversity */
     results.sort((a, b) => b.score - a.score);

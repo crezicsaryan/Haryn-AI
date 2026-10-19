@@ -513,10 +513,12 @@ export function diagnoseRepo(
   }
   if (highs.length) {
     step += 1;
+    // "Then" only reads correctly when something came before it.
     lines.push(
-      `${step}. Then the ${plural(highs.length, "high finding")}; start with ${
-        highs[0].filePath ?? highs[0].title
-      }.`
+      `${step}. ${step === 1 ? "Start with" : "Then"} the ${plural(
+        highs.length,
+        "high finding"
+      )}; start with ${highs[0].filePath ?? highs[0].title}.`
     );
   }
   if (systemic) {

@@ -401,3 +401,13 @@ test("a test fixture does not outrank shipping code at the same severity", () =>
   assert.ok(implAt < testAt, "shipping code must come first");
   assert.match(d.answer, /1 of these are in test files/);
 });
+
+test("the first fix step reads as a first step, not as a second one", () => {
+  const r = repoWith([
+    finding({ title: "High thing", severity: "high", filePath: "src/a.ts" }),
+    finding({ title: "Medium thing", severity: "medium", filePath: "src/b.ts" }),
+  ]);
+  const d = diagnoseRepo(r, "what first?");
+  assert.match(d.answer, /1\. Start with the 1 high finding/);
+  assert.ok(!/1\. Then the/.test(d.answer), "must not open with 'Then'");
+});
