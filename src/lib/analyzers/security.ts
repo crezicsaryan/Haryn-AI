@@ -202,7 +202,16 @@ const CODE_RULES: CodeRule[] = [
   {
     id: "child-process",
     title: "Shell command execution",
-    re: /(child_process|execSync|execFileSync|\bexec\s*\(|spawn\s*\()/g,
+    /*
+     * `exec(` must be a *bare* call, never a method call.
+     *
+     * `RegExp.prototype.exec` is ordinary code — `re.exec(line)` — and the
+     * unanchored `\bexec\s*\(` reported every regex in this codebase as shell
+     * execution. The lookbehind keeps the real cases: a destructured
+     * `const { exec } = require("child_process")` then `exec(cmd)`, and
+     * `child_process.exec(...)` via the first alternative.
+     */
+    re: /(child_process|execSync|execFileSync|(?<!\.)\bexec\s*\(|spawn\s*\()/g,
     severity: "medium",
     confidence: 0.5,
     description:

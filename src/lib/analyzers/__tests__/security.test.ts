@@ -100,3 +100,38 @@ test("a property named evaluate() is not an eval() call", () => {
   const found = titles([src("src/a.js", "obj.eval(value);")]);
   assert.ok(!found.includes("Use of eval()"));
 });
+
+test("flags a bare exec() call from a destructured child_process import", () => {
+  const found = titles([
+    src(
+      "src/build.js",
+      'const { exec } = require("child_process");\nexec("rm -rf " + dir);'
+    ),
+  ]);
+  assert.ok(found.includes("Shell command execution"));
+});
+
+test("flags child_process and execSync by name", () => {
+  assert.ok(
+    titles([src("src/a.js", 'const cp = require("child_process");')]).includes(
+      "Shell command execution"
+    )
+  );
+  assert.ok(
+    titles([src("src/a.js", 'execSync("git status");')]).includes("Shell command execution")
+  );
+});
+
+test("a RegExp .exec() is not shell execution", () => {
+  // `re.exec(text)` is the single most common `.exec` in any codebase; reporting
+  // it as command injection made every regex-matching file look dangerous.
+  const found = titles([
+    src("src/parse.js", "let m; while ((m = re.exec(text))) { out.push(m[0]); }"),
+  ]);
+  assert.ok(!found.includes("Shell command execution"));
+});
+
+test("a method named exec() on another object is not shell execution", () => {
+  const found = titles([src("src/parse.js", "const hit = matcher.exec(line);")]);
+  assert.ok(!found.includes("Shell command execution"));
+});
