@@ -49,11 +49,16 @@ const QUESTIONS = [
     await input.fill(QUESTIONS[i]);
     await page.getByRole("button", { name: /send question/i }).first().click();
     // The answer streams in; wait for the text to stop changing.
+    // A keyless provider can take ~15-20s, so "text stopped changing" is not
+    // enough on its own: the pane is still on "Retrieving relevant code…" and
+    // looks settled. Wait for the loading state to clear, then for the text to
+    // stop changing.
     let prev = "";
-    for (let t = 0; t < 40; t++) {
+    for (let t = 0; t < 120; t++) {
       await page.waitForTimeout(500);
       const now = await page.locator("body").innerText();
-      if (now === prev && t > 4) break;
+      const loading = /retrieving relevant code/i.test(now);
+      if (!loading && now === prev && t > 4) break;
       prev = now;
     }
     // Show the answer from its first line: scroll the element that opens the
