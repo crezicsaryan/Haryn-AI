@@ -13,11 +13,14 @@ import {
   TestTube2,
   Waypoints,
   CircleAlert,
+  Cpu,
+  Ban,
 } from "lucide-react";
 import type { Report } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Card, CardHeader, SeverityBadge } from "@/components/ui/primitives";
 import { SUGGESTED_QUESTIONS } from "@/lib/chat";
+import { ProviderPanel } from "./ProviderPanel";
 
 /* ------------------------------------------------------------------ */
 /* Testing detail                                                      */
@@ -235,9 +238,13 @@ interface Turn {
   content: string;
   sources?: string[];
   matches?: ChatMatch[];
-  engine?: "llm" | "retrieval";
+  engine?: "llm" | "retrieval" | "graph";
   intent?: string;
   groundedIn?: number;
+  /** Which provider wrote this answer, when an LLM answered. */
+  provider?: string;
+  /** Set when the question targeted a different repository. */
+  outOfScope?: string[];
 }
 
 const INTENT_LABEL: Record<string, string> = {
@@ -245,13 +252,21 @@ const INTENT_LABEL: Record<string, string> = {
   security: "from security analysis",
   testing: "from testing analysis",
   dependencies: "from dependencies",
+  database: "from the data layer",
   stack: "from stack detection",
   structure: "from architecture",
   documentation: "from docs analysis",
+  "out-of-scope": "different repository",
   code: "code search",
 };
 
-function EngineBadge({ engine }: { engine?: "llm" | "retrieval" | "graph" }) {
+function EngineBadge({
+  engine,
+  provider,
+}: {
+  engine?: "llm" | "retrieval" | "graph";
+  provider?: string;
+}) {
   if (!engine) return null;
 
   if (engine === "graph") {
@@ -277,12 +292,12 @@ function EngineBadge({ engine }: { engine?: "llm" | "retrieval" | "graph" }) {
       )}
       title={
         llm
-          ? "Answer written by a language model, grounded in the retrieved excerpts"
-          : "Answer composed offline from retrieved code excerpts (no API key configured)"
+          ? `Written by ${provider ?? "a language model"}, grounded in the retrieved excerpts`
+          : "Composed offline from the retrieved source (no AI provider configured)"
       }
     >
-      <Sparkles className="h-2.5 w-2.5" />
-      {llm ? "LLM" : "offline retrieval"}
+      {llm ? <Sparkles className="h-2.5 w-2.5" /> : <Cpu className="h-2.5 w-2.5" />}
+      {llm ? provider ?? "LLM" : "offline analysis"}
     </span>
   );
 }
@@ -322,9 +337,11 @@ export function ChatAgent({ report }: { report: Report }) {
         answer?: string;
         sources?: string[];
         matches?: ChatMatch[];
-        engine?: "llm" | "retrieval";
+        engine?: "llm" | "retrieval" | "graph";
         intent?: string;
         groundedIn?: number;
+        provider?: string;
+        outOfScope?: string[];
         error?: { message: string };
       };
       setTurns((m) => [
@@ -340,6 +357,8 @@ export function ChatAgent({ report }: { report: Report }) {
           engine: data.engine,
           intent: data.intent,
           groundedIn: data.groundedIn,
+          provider: data.provider,
+          outOfScope: data.outOfScope,
         },
       ]);
     } catch {
@@ -367,6 +386,8 @@ export function ChatAgent({ report }: { report: Report }) {
         icon={<MessageSquare className="h-4 w-4" />}
       />
 
+      <ProviderPanel />
+
       <div className="max-h-[480px] min-h-[280px] flex-1 space-y-4 overflow-y-auto p-5 sm:p-6">
         {turns.map((m, i) => (
           <div
@@ -391,9 +412,16 @@ export function ChatAgent({ report }: { report: Report }) {
             >
               {m.role === "assistant" && (
                 <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <EngineBadge engine={m.engine} />
+                  <EngineBadge engine={m.engine} provider={m.provider} />
                   {m.intent && INTENT_LABEL[m.intent] && (
-                    <span className="rounded-pill border border-hair bg-surface px-1.5 py-[1px] text-[10px] font-medium text-ink-3">
+                    <span
+                      className={cn(
+                        "rounded-pill border px-1.5 py-[1px] text-[10px] font-medium",
+                        m.outOfScope
+                          ? "border-med/40 bg-med/10 text-med"
+                          : "border-hair bg-surface text-ink-3"
+                      )}
+                    >
                       {INTENT_LABEL[m.intent]}
                     </span>
                   )}
@@ -402,6 +430,19 @@ export function ChatAgent({ report }: { report: Report }) {
                       grounded in {m.groundedIn} excerpt{m.groundedIn === 1 ? "" : "s"}
                     </span>
                   )}
+                </div>
+              )}
+
+              {m.outOfScope && (
+                <div className="mb-2 flex items-start gap-2 rounded-lg border border-med/30 bg-med/5 px-2.5 py-2">
+                  <Ban className="mt-[1px] h-3.5 w-3.5 shrink-0 text-med" />
+                  <span className="text-[11.5px] leading-snug text-ink-2">
+                    Refused: this question is about{" "}
+                    <span className="font-mono text-[11px] text-ink">
+                      {m.outOfScope.join(", ")}
+                    </span>
+                    , not {report.repo.fullName}.
+                  </span>
                 </div>
               )}
 

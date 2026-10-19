@@ -232,6 +232,18 @@ const MANIFESTS = [
   "composer.json", "Gemfile", "setup.py", "setup.cfg",
 ];
 
+/**
+ * Does this path name a package manifest?
+ *
+ * Shared so the answer layer can tell "the match is a declared dependency"
+ * apart from "the match is source code" without re-listing the filenames —
+ * a second copy of the list would drift the moment one is added.
+ */
+export function isManifestPath(path: string): boolean {
+  const base = (path.toLowerCase().split("/").pop() ?? "");
+  return MANIFESTS.some((m) => base === m.toLowerCase());
+}
+
 const HIGH_SIGNAL_NAMES = [
   ".env", ".env.local", ".env.production", ".env.example", ".env.sample",
   "docker-compose.yml", "docker-compose.yaml", "Dockerfile",

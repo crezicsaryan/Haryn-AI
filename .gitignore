@@ -51,3 +51,12 @@ next-env.d.ts
 
 # compiled output for the test runner (see tsconfig.test.json)
 /.test-build/
+
+# Temporary preview build output
+.next-preview/
+.next-preview-old/
+
+# Local build/preview scratch
+.trash-*/
+build*.log
+serve*.log

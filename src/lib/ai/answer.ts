@@ -1,9 +1,16 @@
 import type { Finding, Report } from "../types";
 import { CATEGORIES } from "../constants";
+import { isManifestPath } from "../analyzers/files";
 import type { Chunk } from "./chunk";
 import type { Retrieved, Retriever } from "./retrieve";
+import { comprehend } from "./comprehend";
 import { tokenize } from "./tokenize";
-import { chatCompletion, type ChatMessage, type Engine } from "./provider";
+import {
+  chatCompletionMeta,
+  isAiConfigured,
+  type ChatMessage,
+  type Engine,
+} from "./provider";
 import {
   buildFactsContext,
   classifyIntent,
@@ -35,10 +42,19 @@ export interface AnswerResult {
   groundedIn: number;
   /** Which route the question took. */
   intent: Intent;
+  /** Which provider answered (LLM path only). */
+  provider?: string;
+  /** Which model answered (LLM path only). */
+  model?: string;
 }
 
 const MAX_CONTEXT_CHUNKS = 9;
 const MAX_CHUNK_CHARS = 1800;
+
+/** Is any provider configured? Used only to explain the offline path. */
+function hasAnyProvider(): boolean {
+  return isAiConfigured();
+}
 
 /* ------------------------------------------------------------------ */
 /* Prompt-injection defence                                           */
@@ -160,89 +176,41 @@ function buildUserPrompt(
 /* Extractive fallback                                                 */
 /* ------------------------------------------------------------------ */
 
-/** Pick the lines of a chunk that best answer the question. */
-function bestLines(chunk: Chunk, terms: Set<string>, max = 5): string {
-  const lines = chunk.text.split("\n");
-  const scored = lines.map((line, i) => {
-    const lower = line.toLowerCase();
-    let s = 0;
-    for (const t of terms) if (t.length > 3 && lower.includes(t)) s += 1;
-    if (/^\s*(\/\/|#|\*)/.test(line)) s -= 0.5;
-    return { line, i, s };
-  });
-
-  const picks = scored
-    .map((x, i) => ({ ...x, i }))
-    .filter((x) => x.s > 0)
-    .sort((a, b) => b.s - a.s)
-    .slice(0, max)
-    .sort((a, b) => a.i - b.i);
-
-  if (!picks.length) {
-    return lines.slice(0, Math.min(4, lines.length)).join("\n");
-  }
-
-  // Keep it contiguous-ish and readable.
-  const out: string[] = [];
-  let last = -2;
-  for (const p of picks) {
-    if (p.i > last + 1) out.push("…");
-    out.push(p.line.trimEnd());
-    last = p.i;
-  }
-  return out.join("\n");
-}
-
+/**
+ * Offline answer, built by `comprehend`.
+ *
+ * This used to dump retrieved excerpts verbatim, which told the reader nothing.
+ * Now it explains roles, call flow, dependencies and signals — still only from
+ * what the code literally shows, but as an answer rather than a paste.
+ */
 function extractiveAnswer(
   report: Report,
   question: string,
   results: Retrieved[]
 ): AnswerResult {
-  const terms = new Set(tokenize(question));
-  const files = [...new Set(results.map((r) => r.chunk.path))];
-  const lines: string[] = [];
-
-  lines.push(
-    `I found ${results.length} relevant location${results.length === 1 ? "" : "s"} across ${files.length} file${files.length === 1 ? "" : "s"}.`
+  // Distinguish "no provider exists" from "a provider exists but just failed",
+  // so the reader is not sent looking for a configuration problem that is not
+  // there. `configuredProviders()` reads the same chain the LLM call used.
+  //
+  // `externalOnly` is a third case: the matches are all in a package manifest,
+  // so the answer came from declared dependencies rather than source code. The
+  // closing should say which source it drew on instead of implying a code read.
+  const externalOnly =
+    results.length > 0 && results.every((r) => isManifestPath(r.chunk.path));
+  const offlineReason = externalOnly
+    ? "external-only"
+    : hasAnyProvider()
+      ? "provider-failed"
+      : "no-provider";
+  const { answer, sources } = comprehend(
+    report.repo.fullName,
+    question,
+    results,
+    offlineReason
   );
-  lines.push("");
-
-  results.slice(0, 6).forEach((r, i) => {
-    const c = r.chunk;
-    const head = `${i + 1}. ${c.path}:${c.startLine}${
-      c.symbol ? ` — ${c.symbol}()` : ""
-    }${c.kind === "class" ? " [class]" : ""}`;
-    lines.push(head);
-    const snippet = bestLines(c, terms);
-    if (snippet) {
-      lines.push(
-        snippet
-          .split("\n")
-          .map((l) => `     ${l}`)
-          .join("\n")
-      );
-    }
-    lines.push("");
-  });
-
-  const findings = relevantFindings(report, question, 3);
-  if (findings.length) {
-    lines.push("Related static findings:");
-    findings.forEach((f) =>
-      lines.push(
-        `• [${f.severity.toUpperCase()}] ${f.title}${f.filePath ? ` — ${f.filePath}${f.lineStart ? `:${f.lineStart}` : ""}` : ""}`
-      )
-    );
-    lines.push("");
-  }
-
-  lines.push(
-    "This answer was composed from retrieved code excerpts. Configure AI_API_KEY for a written, reasoned explanation."
-  );
-
   return {
-    answer: lines.join("\n").trim(),
-    sources: results.slice(0, 6).map((r) => `${r.chunk.path}:${r.chunk.startLine}`),
+    answer,
+    sources,
     engine: "retrieval",
     groundedIn: results.length,
     intent: "code",
@@ -280,6 +248,17 @@ function factsSources(report: Report, intent: Intent): string[] {
       return pick(["testing"]);
     case "dependencies":
       return report.dependencies.manifests.slice(0, 6);
+    case "database":
+      return [
+        ...report.dependencies.manifests,
+        ...report.findings
+          .filter(
+            (f) =>
+              f.filePath &&
+              /model|schema|migrat|db|database|repository|dao|entity|store/i.test(f.filePath)
+          )
+          .map((f) => f.filePath as string),
+      ].slice(0, 6);
     case "documentation":
       return pick(["documentation"]);
     case "findings":
@@ -314,14 +293,16 @@ async function answerFacts(
     },
   ];
 
-  const llm = await chatCompletion(messages, { temperature: 0.2, maxTokens: 800 });
+  const llm = await chatCompletionMeta(messages, { temperature: 0.2, maxTokens: 800 });
   if (llm) {
     return {
-      answer: llm,
+      answer: llm.text,
       sources: factsSources(report, intent),
       engine: "llm",
       groundedIn: 0,
       intent,
+      provider: llm.meta.provider,
+      model: llm.meta.model,
     };
   }
 
@@ -383,17 +364,19 @@ export async function answerQuestion(args: {
     { role: "user", content: buildUserPrompt(report, question, results) },
   ];
 
-  const llm = await chatCompletion(messages, { temperature: 0.15, maxTokens: 900 });
+  const llm = await chatCompletionMeta(messages, { temperature: 0.15, maxTokens: 900 });
 
   if (llm) {
     return {
-      answer: llm,
+      answer: llm.text,
       sources: results
         .slice(0, MAX_CONTEXT_CHUNKS)
         .map((r) => `${r.chunk.path}:${r.chunk.startLine}`),
       engine: "llm",
       groundedIn: results.length,
       intent,
+      provider: llm.meta.provider,
+      model: llm.meta.model,
     };
   }
 

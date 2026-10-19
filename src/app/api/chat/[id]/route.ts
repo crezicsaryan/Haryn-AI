@@ -6,8 +6,9 @@ import {
   saveChatMessage,
 } from "@/lib/store";
 import { answerQuestion, embedQuery, retrieveFor } from "@/lib/ai";
+import { checkRepoScope, scopeRefusal } from "@/lib/ai/repo-scope";
+import { classifyIntent, factsAnswer, isFactsIntent } from "@/lib/ai/router";
 import { answerFromGraph } from "@/lib/graph/query";
-import { answerQuestion as keywordAnswer } from "@/lib/chat";
 import { clientKey, RATE_LIMITS, rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -78,6 +79,37 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   // Persist the question before answering so a failed answer still leaves a trail.
   await saveChatMessage(id, { role: "user", content: message });
+
+  /* --- Scope guard ---------------------------------------------------
+   * A report covers exactly one repository. If the reader asks about a
+   * different one, every file this report can search belongs to the wrong
+   * project — so retrieval would confidently answer the wrong question.
+   * Refuse and name the loaded repository instead. This runs first, before
+   * the graph path, so no downstream route can answer out of scope.
+   */
+  const scope = checkRepoScope(report.repo, message);
+  if (scope.outOfScope) {
+    const answer = scopeRefusal(report.repo, scope.otherRepos);
+    await saveChatMessage(id, {
+      role: "assistant",
+      content: answer,
+      engine: "retrieval",
+      intent: "out-of-scope",
+      sources: [],
+    });
+    return NextResponse.json(
+      {
+        answer,
+        sources: [] as string[],
+        engine: "retrieval" as const,
+        intent: "out-of-scope" as const,
+        groundedIn: 0,
+        matches: [] as ChatMatch[],
+        outOfScope: scope.otherRepos,
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
 
   /* --- Knowledge-graph path -----------------------------------------
    * Questions about dependencies, impact, routes and tests are answered
@@ -154,6 +186,8 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         engine: result.engine,
         intent: result.intent,
         groundedIn: result.groundedIn,
+        provider: result.provider,
+        model: result.model,
         matches: matches.map<ChatMatch>((m) => ({
           path: m.chunk.path,
           line: m.chunk.startLine,
@@ -168,24 +202,32 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     );
   }
 
-  /* --- Fallback: report-only Q&A (e.g. the bundled sample) ----------- */
-  const { answer, sources } = keywordAnswer(report, message);
+  /* --- Fallback: report-only Q&A (e.g. the bundled sample) -----------
+   * No retrieval index means there is no source to ground a code answer in.
+   * Only report-level facts can be answered, so the question is routed through
+   * the deterministic facts answer rather than the old template engine, which
+   * asserted behaviour it had never read.
+   */
+  const intent = classifyIntent(message);
+  const answer =
+    factsAnswer(report, isFactsIntent(intent) ? intent : "findings") ||
+    `I can answer about the analysis of ${report.repo.fullName}, but this report has no source index, so I cannot cite specific code. Try asking about the findings, scores, structure or dependencies.`;
 
   await saveChatMessage(id, {
     role: "assistant",
     content: answer,
     engine: "retrieval",
-    intent: "findings",
-    sources,
+    intent: isFactsIntent(intent) ? intent : "findings",
+    sources: [],
   });
 
   return NextResponse.json(
     {
       answer,
-      sources,
+      sources: [] as string[],
       engine: "retrieval" as const,
-      intent: "findings" as const,
-      groundedIn: sources.length,
+      intent: (isFactsIntent(intent) ? intent : "findings") as string,
+      groundedIn: 0,
       matches: [] as ChatMatch[],
     },
     { headers: { "Cache-Control": "no-store" } }

@@ -28,8 +28,23 @@ export type Intent =
   | "structure"
   | "documentation"
   | "activity"
+  | "database"
   | "code";
 
+/**
+ * Intent patterns, in priority order.
+ *
+ * Two things matter here and both were wrong before:
+ *
+ *  1. **Order is priority.** `structure` is checked before `stack` because
+ *     "how is the project organised" contains no stack words, while "what does
+ *     this project use" is a stack question — but "how big is the project" is
+ *     structural. A single word must not steal a question from a stronger intent.
+ *  2. **Facts intents must claim their questions.** "What database do they use?"
+ *     used to fall through to `code`, retrieve noise like an `index.css`
+ *     comment, and never consult the dependency manifest that actually holds the
+ *     answer. Data-layer questions now have their own intent.
+ */
 const PATTERNS: { intent: Intent; re: RegExp }[] = [
   {
     intent: "findings",
@@ -48,8 +63,14 @@ const PATTERNS: { intent: Intent; re: RegExp }[] = [
     re: /\b(tests?|testing|coverage|spec|jest|vitest|pytest|unit tests?)\b/i,
   },
   {
+    // Data layer, before generic stack/structure, because "what database" is
+    // answerable exactly from manifests and the architecture pass.
+    intent: "database",
+    re: /\b(databases?|db|orm|schema|migrations?|persistence|persist|postgres(?:ql)?|mysql|mongo(?:db)?|sqlite|redis|dynamodb|firestore|supabase|prisma|sequelize|mongoose|typeorm|knex|models?)\b/i,
+  },
+  {
     intent: "dependencies",
-    re: /\b(dependenc\w*|packages?|npm|outdated|upgrade|library|libraries|node_modules)\b/i,
+    re: /\b(dependenc\w*|packages?|npm|yarn|pnpm|outdated|upgrade|library|libraries|node_modules|third[- ]party)\b/i,
   },
   {
     intent: "activity",
@@ -60,12 +81,14 @@ const PATTERNS: { intent: Intent; re: RegExp }[] = [
     re: /\b(documentation|docs?|readme|comments?|licen[cs]e)\b/i,
   },
   {
-    intent: "stack",
-    re: /\b(technolog\w*|stack|framework|language|built with|tech|what does .* use)\b/i,
+    // Structure before stack: "how is it organised / how big" is structural even
+    // when the sentence also contains "project".
+    intent: "structure",
+    re: /\b(architect\w*|structure|structured|layers?|organi[sz]ed|organi[sz]ation|folder|directories|directory|how big|how many files|size|layout|monorepo|packages?\s+layout)\b/i,
   },
   {
-    intent: "structure",
-    re: /\b(architect\w*|structure|layers?|organi[sz]ed|folder|directories|how big|how many files|size|layout)\b/i,
+    intent: "stack",
+    re: /\b(technolog\w*|stack|frameworks?|languages?|built with|tech|what does .* use|what (?:is|are) .* (?:using|written in))\b/i,
   },
 ];
 
@@ -234,6 +257,40 @@ export function buildFactsContext(report: Report, intent: Intent): string {
         "Detected layers:",
         report.architecture.nodes.map((n) => `- ${n.label} (${n.files} files)`).join("\n"),
       ].join("\n");
+
+    case "database": {
+      const libs = report.dependencies.items.filter((d) =>
+        /prisma|mongoose|sequelize|typeorm|knex|pg|postgres|mysql|sqlite|mongodb|firestore|redis|dynamodb|supabase|better-sqlite/i.test(
+          d.name
+        )
+      );
+      const dataNode = report.architecture.nodes.find((n) => n.id === "data");
+      return [
+        `Data-layer libraries declared: ${libs.length ? libs.map((l) => `${l.name}@${l.version}`).join(", ") : "none detected in the manifests"}`,
+        `Manifests read: ${report.dependencies.manifests.join(", ") || "none found"}`,
+        dataNode
+          ? `The architecture pass classified ${dataNode.files} file(s) into the "${dataNode.label}" layer:`
+          : "No dedicated data layer was classified from the file tree.",
+        dataNode?.detail
+          ? dataNode.detail
+              .split("\n")
+              .slice(0, 8)
+              .map((d) => `- ${d}`)
+              .join("\n")
+          : "",
+        "",
+        "Files whose path suggests persistence:",
+        report.findings
+          .filter((f) => f.filePath && /model|schema|migrat|db|database|repository|dao|entity|store/i.test(f.filePath))
+          .map((f) => f.filePath as string)
+          .filter((p, i, a) => a.indexOf(p) === i)
+          .slice(0, 8)
+          .map((p) => `- ${p}`)
+          .join("\n") || "- none identified",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
 
     case "structure":
       return [
@@ -442,6 +499,38 @@ export function factsAnswer(report: Report, intent: Intent): string {
       lines.push("");
       lines.push("Detected layers:");
       r.architecture.nodes.forEach((n) => lines.push(`• ${n.label} — ${n.files} files`));
+      break;
+    }
+
+    case "database": {
+      const libs = r.dependencies.items.filter((d) =>
+        /prisma|mongoose|sequelize|typeorm|knex|pg|postgres|mysql|sqlite|mongodb|firestore|redis|dynamodb|supabase|better-sqlite/i.test(
+          d.name
+        )
+      );
+      if (libs.length) {
+        lines.push(
+          `Data-layer libraries declared in the manifests: ${libs.map((l) => `${l.name}@${l.version}`).join(", ")}.`
+        );
+      } else {
+        lines.push(
+          "No recognisable database or ORM library was found in the package manifests."
+        );
+      }
+      const dataNode = r.architecture.nodes.find((n) => n.id === "data");
+      if (dataNode) {
+        lines.push(
+          `The architecture pass classified ${dataNode.files} file(s) into the "${dataNode.label}" layer.`
+        );
+      } else {
+        lines.push(
+          "No dedicated data/ persistence layer was classified from the file tree."
+        );
+      }
+      lines.push("");
+      lines.push(
+        "This is read from the declared dependencies and the file tree — it is not a live connection check."
+      );
       break;
     }
 
