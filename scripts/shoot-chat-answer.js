@@ -13,10 +13,14 @@ const BASE = process.env.BASE || "http://localhost:3000";
  * line, describes the role of the match, and walks the call order. A screenshot
  * of the JSON API would not prove the panel renders it correctly.
  */
-const QUESTIONS = [
-  "How does the scoring work?",
-  "Analyse the facebook/react repository",
-];
+// One question per run via Q= so each shot starts from a clean pane — a second
+// answer appended below the first is hard to scroll to reliably.
+const QUESTIONS = process.env.Q
+  ? [process.env.Q]
+  : [
+      "What is wrong in this repository?",
+      "How does the diagnosis engine decide what is wrong?",
+    ];
 
 (async () => {
   const browser = await chromium.launch();
@@ -27,7 +31,7 @@ const QUESTIONS = [
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
 
-  const report = process.env.REPORT || "/report/an_mvej5wzi9qtlxx";
+  const report = process.env.REPORT || "/report/an_mvf8h0icx07nmu";
   await page.goto(`${BASE}${report}`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1500);
 
@@ -68,12 +72,22 @@ const QUESTIONS = [
       // The newest answer is the last matching element, not the first — the
       // previous answer is still in the DOM above it.
       const openers = all.filter((el) =>
-        /^(the clearest match|the closest code|i can only answer)/i.test(
+        /^(crezicsaryan|the clearest match|the closest code|i can only answer|this is )/i.test(
           (el.textContent || "").trim()
         )
       );
       const opener = openers[openers.length - 1];
       if (opener) opener.scrollIntoView({ block: "start" });
+      // The pane grows while the answer streams, so scroll again once it has
+      // settled — otherwise the shot shows the tail of a long diagnosis.
+      const scrollers = Array.from(document.querySelectorAll("aside *")).filter(
+        (el) => el.scrollHeight > el.clientHeight + 40
+      );
+      const last = scrollers[scrollers.length - 1];
+      if (last && opener) {
+        const delta = opener.getBoundingClientRect().top - last.getBoundingClientRect().top;
+        last.scrollTop = last.scrollTop + delta;
+      }
     });
     await page.waitForTimeout(400);
     out.answers.push({ question: QUESTIONS[i], chars: prev.length });
