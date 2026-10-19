@@ -14,7 +14,7 @@ const BASE = process.env.BASE || "http://localhost:3000";
  * of the JSON API would not prove the panel renders it correctly.
  */
 const QUESTIONS = [
-  "How does authentication work in this app?",
+  "How does the scoring work?",
   "Analyse the facebook/react repository",
 ];
 
@@ -60,9 +60,14 @@ const QUESTIONS = [
     // answer to the top of its scroll container rather than to the bottom.
     await page.evaluate(() => {
       const all = Array.from(document.querySelectorAll("aside *"));
-      const opener = all.find((el) =>
-        /^(the clearest match|i can only answer)/i.test((el.textContent || "").trim())
+      // The newest answer is the last matching element, not the first — the
+      // previous answer is still in the DOM above it.
+      const openers = all.filter((el) =>
+        /^(the clearest match|the closest code|i can only answer)/i.test(
+          (el.textContent || "").trim()
+        )
       );
+      const opener = openers[openers.length - 1];
       if (opener) opener.scrollIntoView({ block: "start" });
     });
     await page.waitForTimeout(400);
