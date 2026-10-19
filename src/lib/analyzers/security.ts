@@ -261,9 +261,35 @@ const CODE_RULES: CodeRule[] = [
   {
     id: "tls-verify-off",
     title: "TLS certificate verification disabled",
-    re: /rejectUnauthorized\s*:\s*false|verify\s*=\s*False|InsecureSkipVerify\s*:\s*true|NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*["'`]?0/g,
+    /*
+     * Code forms only, so a string or comment that *describes* the pattern does
+     * not fire. This rule reported its own repair text — `rejectUnauthorized:
+     * false` written inside a quoted recommendation — which is the same
+     * metadata-matching failure the other rules were fixed for.
+     */
+    re: /rejectUnauthorized\s*:\s*false|verify\s*=\s*False|InsecureSkipVerify\s*:\s*true/g,
     severity: "high",
     confidence: 0.85,
+    codeOnly: true,
+    description:
+      "Disabling certificate verification permits man-in-the-middle interception of traffic.",
+    impact: "Traffic can be silently intercepted or modified.",
+    recommendation:
+      "Re-enable verification and, if a private CA is required, trust that CA explicitly.",
+  },
+  {
+    /*
+     * The environment-variable form is different: the disabled value IS the
+     * string "0", so strings must survive masking. Kept as its own rule rather
+     * than one rule with `keep-strings`, which would let the string match
+     * anywhere again.
+     */
+    id: "tls-verify-off-env",
+    title: "TLS certificate verification disabled",
+    re: /NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*["'`]?0/g,
+    severity: "high",
+    confidence: 0.85,
+    codeOnly: "keep-strings",
     description:
       "Disabling certificate verification permits man-in-the-middle interception of traffic.",
     impact: "Traffic can be silently intercepted or modified.",

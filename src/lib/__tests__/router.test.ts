@@ -113,3 +113,8 @@ test("an explicit bug question still routes to the bug scan", () => {
   assert.equal(classifyIntent("Are there any bugs?"), "bugs");
   assert.equal(classifyIntent("Is there an off-by-one bug here?"), "bugs");
 });
+
+test("an explicit bug question is not stolen by the word 'fix'", () => {
+  assert.equal(classifyIntent("Show me the bugs and how to fix them"), "bugs");
+  assert.equal(classifyIntent("Any buggy code here?"), "bugs");
+});

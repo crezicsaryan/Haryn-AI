@@ -143,3 +143,29 @@ test("a method named exec on another object is not shell execution", () => {
   const found = titles([src("src/parse.js", "const hit = matcher.exec(line);")]);
   assert.ok(!found.includes("Shell command execution"));
 });
+
+test("TLS verification is reported in code, not in prose about it", () => {
+  // This rule reported its own repair text — the pattern written inside a
+  // quoted recommendation — and put a false high finding on a docs line.
+  const prose = titles([
+    src(
+      "src/lib/ai/diagnose.ts",
+      'fix: "Remove the `rejectUnauthorized: false` option from the client."'
+    ),
+  ]);
+  assert.ok(!prose.includes("TLS certificate verification disabled"));
+
+  const real = titles([
+    src("src/http.js", "const agent = new https.Agent({ rejectUnauthorized: false });"),
+  ]);
+  assert.ok(real.includes("TLS certificate verification disabled"));
+});
+
+test("the env-var form of disabled TLS still reports, even though its value is a string", () => {
+  // Splitting the rule is the point: this form needs strings kept, the code
+  // form needs them masked, and one rule cannot do both.
+  const found = titles([
+    src("scripts/run.js", 'process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";'),
+  ]);
+  assert.ok(found.includes("TLS certificate verification disabled"));
+});

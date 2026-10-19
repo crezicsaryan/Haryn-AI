@@ -48,6 +48,15 @@ export type Intent =
 const PATTERNS: { intent: Intent; re: RegExp }[] = [
   {
     /*
+     * An explicit "bugs" beats the generic fix/priority words below. "Show me
+     * the bugs and how to fix them" was routed to the whole-report view by the
+     * word "fix", which is not what was asked.
+     */
+    intent: "bugs",
+    re: /\b(bugs?|buggy)\b/i,
+  },
+  {
+    /*
      * "What is wrong?" is a request for the whole picture, not for one
      * category. Without this entry the word "wrong" routed it to the bugs
      * analyzer alone, so a repository with 158 findings was described by the
