@@ -1,6 +1,5 @@
 import type { SourceFile } from "../analyzers/types";
 import { chunkFiles, type Chunk } from "./chunk";
-import { buildEmbeddings, type EmbeddingIndex } from "./embeddings";
 import { buildRetriever, type Retriever } from "./retrieve";
 
 /**
@@ -9,27 +8,17 @@ import { buildRetriever, type Retriever } from "./retrieve";
  * Built once during analysis and held beside the report (never inside it — the
  * report is serialised to the client, the index is not). This is the seam that
  * would become a vector database in a larger deployment; today it is an
- * in-process BM25 index with an optional embedding layer.
+ * in-process BM25 index over lexical and structural signals.
  */
 export interface RepoIndex {
   retriever: Retriever;
-  embeddings: EmbeddingIndex | null;
   chunkCount: number;
   fileCount: number;
   indexedBytes: number;
 }
 
-export interface BuildIndexOptions {
-  /** Attempt to build the embedding layer (needs AI_API_KEY). */
-  withEmbeddings?: boolean;
-}
-
-export async function buildIndex(
-  files: SourceFile[],
-  opts: BuildIndexOptions = {}
-): Promise<RepoIndex> {
-  const chunks: Chunk[] = chunkFiles(files);
-  return indexFromChunks(chunks, opts);
+export async function buildIndex(files: SourceFile[]): Promise<RepoIndex> {
+  return indexFromChunks(chunkFiles(files));
 }
 
 /**
@@ -39,24 +28,9 @@ export async function buildIndex(
  * database and the BM25 index is rebuilt in memory, which takes milliseconds.
  * Storing the index itself would be storing derived data.
  */
-export async function indexFromChunks(
-  chunks: Chunk[],
-  opts: BuildIndexOptions = {}
-): Promise<RepoIndex> {
-  let embeddings: EmbeddingIndex | null = null;
-  if (opts.withEmbeddings) {
-    // A failure here is expected when no key is set — the retriever still works.
-    embeddings = await buildEmbeddings(chunks);
-  }
-
-  const retriever = buildRetriever(chunks, {
-    embeddings: embeddings?.vectors,
-    embeddingWeight: 0.45,
-  });
-
+export async function indexFromChunks(chunks: Chunk[]): Promise<RepoIndex> {
   return {
-    retriever,
-    embeddings,
+    retriever: buildRetriever(chunks),
     chunkCount: chunks.length,
     fileCount: new Set(chunks.map((c) => c.path)).size,
     indexedBytes: chunks.reduce((a, c) => a + c.bytes, 0),
@@ -85,6 +59,4 @@ export function persistableChunks(index: RepoIndex): Chunk[] {
 
 export type { Chunk, Retriever };
 export { answerQuestion, retrieveFor } from "./answer";
-export { generateAiSummary } from "./summary";
-export { aiStatus, isAiConfigured, engineLabel } from "./provider";
-export { embedQuery } from "./embeddings";
+export { diagnose, type Diagnosis } from "./diagnose";

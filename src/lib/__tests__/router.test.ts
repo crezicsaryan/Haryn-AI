@@ -94,3 +94,22 @@ test("every facts intent is treated as answerable from the report", () => {
     assert.ok(isFactsIntent(classifyIntent(q)), `should be a facts intent: ${q}`);
   }
 });
+
+test("'what is wrong' asks for the whole picture, not just the bugs category", () => {
+  // The word "wrong" also appears in the bugs pattern; routing it there
+  // described a 158-finding repository with the 22 that were runtime bugs.
+  for (const q of [
+    "What is wrong in this repository?",
+    "What is wrong?",
+    "What's broken here?",
+    "What needs fixing?",
+    "What is the problem with this codebase?",
+  ]) {
+    assert.equal(classifyIntent(q), "findings", q);
+  }
+});
+
+test("an explicit bug question still routes to the bug scan", () => {
+  assert.equal(classifyIntent("Are there any bugs?"), "bugs");
+  assert.equal(classifyIntent("Is there an off-by-one bug here?"), "bugs");
+});

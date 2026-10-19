@@ -20,7 +20,6 @@ import type { Report } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Card, CardHeader, SeverityBadge } from "@/components/ui/primitives";
 import { SUGGESTED_QUESTIONS } from "@/lib/chat";
-import { ProviderPanel } from "./ProviderPanel";
 
 /* ------------------------------------------------------------------ */
 /* Testing detail                                                      */
@@ -238,11 +237,9 @@ interface Turn {
   content: string;
   sources?: string[];
   matches?: ChatMatch[];
-  engine?: "llm" | "retrieval" | "graph";
+  engine?: "retrieval" | "graph";
   intent?: string;
   groundedIn?: number;
-  /** Which provider wrote this answer, when an LLM answered. */
-  provider?: string;
   /** Set when the question targeted a different repository. */
   outOfScope?: string[];
 }
@@ -260,13 +257,7 @@ const INTENT_LABEL: Record<string, string> = {
   code: "code search",
 };
 
-function EngineBadge({
-  engine,
-  provider,
-}: {
-  engine?: "llm" | "retrieval" | "graph";
-  provider?: string;
-}) {
+function EngineBadge({ engine }: { engine?: "retrieval" | "graph" }) {
   if (!engine) return null;
 
   if (engine === "graph") {
@@ -281,23 +272,13 @@ function EngineBadge({
     );
   }
 
-  const llm = engine === "llm";
   return (
     <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-pill border px-1.5 py-[1px] text-[10px] font-medium",
-        llm
-          ? "border-brand-200 bg-brand-50 text-brand-700"
-          : "border-hair bg-surface-2 text-ink-3"
-      )}
-      title={
-        llm
-          ? `Written by ${provider ?? "a language model"}, grounded in the retrieved excerpts`
-          : "Composed offline from the retrieved source (no AI provider configured)"
-      }
+      className="inline-flex items-center gap-1 rounded-pill border border-hair bg-surface-2 px-1.5 py-[1px] text-[10px] font-medium text-ink-3"
+      title="Composed from the static analysis and the retrieved source — every claim cites a file and line"
     >
-      {llm ? <Sparkles className="h-2.5 w-2.5" /> : <Cpu className="h-2.5 w-2.5" />}
-      {llm ? provider ?? "LLM" : "offline analysis"}
+      <Cpu className="h-2.5 w-2.5" />
+      static analysis
     </span>
   );
 }
@@ -337,10 +318,9 @@ export function ChatAgent({ report }: { report: Report }) {
         answer?: string;
         sources?: string[];
         matches?: ChatMatch[];
-        engine?: "llm" | "retrieval" | "graph";
+        engine?: "retrieval" | "graph";
         intent?: string;
         groundedIn?: number;
-        provider?: string;
         outOfScope?: string[];
         error?: { message: string };
       };
@@ -357,7 +337,6 @@ export function ChatAgent({ report }: { report: Report }) {
           engine: data.engine,
           intent: data.intent,
           groundedIn: data.groundedIn,
-          provider: data.provider,
           outOfScope: data.outOfScope,
         },
       ]);
@@ -386,7 +365,6 @@ export function ChatAgent({ report }: { report: Report }) {
         icon={<MessageSquare className="h-4 w-4" />}
       />
 
-      <ProviderPanel />
 
       <div className="max-h-[480px] min-h-[280px] flex-1 space-y-4 overflow-y-auto p-5 sm:p-6">
         {turns.map((m, i) => (
@@ -412,7 +390,7 @@ export function ChatAgent({ report }: { report: Report }) {
             >
               {m.role === "assistant" && (
                 <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <EngineBadge engine={m.engine} provider={m.provider} />
+                  <EngineBadge engine={m.engine} />
                   {m.intent && INTENT_LABEL[m.intent] && (
                     <span
                       className={cn(
@@ -584,19 +562,10 @@ export function AiSummaryCard({ report }: { report: Report }) {
         icon={<Sparkles className="h-4 w-4" />}
         action={
           <span
-            className={cn(
-              "hidden rounded-pill border px-2.5 py-1 text-[11px] font-medium sm:inline-flex",
-              report.summaryEngine === "llm"
-                ? "border-brand-200 bg-brand-50 text-brand-700"
-                : "border-hair bg-surface-2 text-ink-3"
-            )}
-            title={
-              report.summaryEngine === "llm"
-                ? "Written by a language model from the measured findings"
-                : "Synthesised deterministically — configure AI_API_KEY for a written narrative"
-            }
+            className="hidden rounded-pill border border-hair bg-surface-2 px-2.5 py-1 text-[11px] font-medium text-ink-3 sm:inline-flex"
+            title="Synthesised deterministically from the measured findings — no model, no invention"
           >
-            {report.summaryEngine === "llm" ? "LLM summary" : "Deterministic summary"}
+            Deterministic summary
           </span>
         }
       />

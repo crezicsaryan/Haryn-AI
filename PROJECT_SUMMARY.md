@@ -60,9 +60,11 @@ Browser
 metadata and commit history. If it is rate-limited, the analysis still completes
 and the report says what is missing.
 
-**Analysis never depends on AI.** The LLM layer is strictly additive — a missing
-key, a timeout or a 429 degrades to the offline path rather than failing a
-report.
+**There is no AI layer.** Every sentence the assistant produces is either a
+measurement from the analysis or a finding with a `path:line` behind it, so it
+cannot invent a defect. Depth comes from joining the retrieved code to its
+findings, the rule metadata behind them, the import graph and the coverage data
+— not from a model's fluency.
 
 ---
 
@@ -88,23 +90,23 @@ that is almost always wrong, carries an honest confidence value, and is labelled
 ## Retrieval & the AI layer
 
 ```
-Source files → declaration-aware chunking → BM25 index (+optional embeddings)
-   → hybrid retrieval → intent routing → grounded generation
+Source files → declaration-aware chunking → BM25 index
+   → hybrid retrieval → intent routing → evidence-backed diagnosis
 ```
 
-- **Hybrid retrieval**, not pure embeddings: BM25 × symbol match × path match ×
-  import match × exact phrase × optional embedding cosine. Code questions carry
-  structural signal that term statistics miss.
+- **Hybrid retrieval**: BM25 × symbol match × path match × import match × exact
+  phrase. Code questions carry structural signal that term statistics miss.
 - **Stem keys** (3–4 character prefixes) so "authentication" reaches `auth.js`.
 - **Exactness prior** so a short config file cannot outrank the file that
   actually contains the queried term.
 - **Intent routing** so "what should I fix" answers from findings, not code
   search.
-- **Prompt-injection defence**: repository content is untrusted; tag delimiters
-  are neutralised inside excerpts before they reach a prompt.
+- **Bug diagnosis**: each finding is expanded with the rule that produced it,
+  the impact it describes and a concrete repair, with repeated defects collapsed
+  into one root cause.
 
-Works with **no API key**. `AI_API_KEY` upgrades the summary and answers to LLM
-prose and adds a semantic embedding blend.
+Works with **no configuration at all** — there is no key to set, because nothing
+leaves the machine.
 
 ---
 
@@ -186,8 +188,7 @@ Open http://localhost:3000. The database is created automatically at
 `data/haryn.db` — no server, no migration step.
 
 Optional environment variables are documented in `.env.example`. Only
-`AI_API_KEY` (LLM + embeddings) and `GITHUB_TOKEN` (richer metadata) change
-behaviour; neither is required.
+`GITHUB_TOKEN` (richer metadata) changes behaviour, and it is not required.
 
 ### Switching to Postgres
 

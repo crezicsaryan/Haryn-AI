@@ -267,7 +267,7 @@ export async function getIndex(id: string): Promise<RepoIndex | null> {
   const chunks = parseJson<Chunk[] | null>(row?.chunks, null);
   if (!chunks?.length) return null;
 
-  const index = await indexFromChunks(chunks, { withEmbeddings: false });
+  const index = await indexFromChunks(chunks);
   cacheIndex(id, index);
   return index;
 }

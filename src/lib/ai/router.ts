@@ -47,6 +47,16 @@ export type Intent =
  */
 const PATTERNS: { intent: Intent; re: RegExp }[] = [
   {
+    /*
+     * "What is wrong?" is a request for the whole picture, not for one
+     * category. Without this entry the word "wrong" routed it to the bugs
+     * analyzer alone, so a repository with 158 findings was described by the
+     * 22 that happened to be runtime bugs.
+     */
+    intent: "findings",
+    re: /\bwhat(?:'s| is| are|s)?\s+(?:wrong|broken|the (?:problem|issue)s?)\b|\bwhat needs (?:fixing|attention)\b/i,
+  },
+  {
     intent: "findings",
     re: /\b(improve|fix|fixes|first|priorit(?:y|ies|ise|ize)|worst|biggest|most important|should i|action|start with|tech(?:nical)? debt|refactor|clean ?up)\b/i,
   },

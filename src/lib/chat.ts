@@ -20,6 +20,7 @@
  */
 
 import type { Report } from "./types";
+import { diagnoseCategory, diagnoseRepo } from "./ai/diagnose";
 import { classifyIntent, factsAnswer, isFactsIntent } from "./ai/router";
 
 export interface ChatAnswer {
@@ -39,6 +40,20 @@ export function answerQuestion(report: Report, question: string): ChatAnswer {
   if (!q) return overview(report);
 
   const intent = classifyIntent(q);
+
+  // Diagnosis questions get the same deep answer the retrieval path gives —
+  // a report without a source index is still enough to say what is wrong,
+  // where, why it breaks and how to repair it.
+  if (intent === "findings" || intent === "security" || intent === "bugs") {
+    const d =
+      intent === "security"
+        ? diagnoseCategory(report, "security")
+        : intent === "bugs"
+          ? diagnoseCategory(report, "bugs")
+          : diagnoseRepo(report, q);
+    return { answer: d.answer, sources: d.sources };
+  }
+
   const answer = factsAnswer(report, isFactsIntent(intent) ? intent : "findings");
   if (answer.trim()) return { answer, sources: [] };
 
@@ -56,10 +71,10 @@ function overview(report: Report): ChatAnswer {
 }
 
 export const SUGGESTED_QUESTIONS = [
-  "How does authentication work?",
+  "What is wrong in this repository?",
+  "Which files should I fix first?",
   "What are the biggest security risks?",
-  "Which files should I improve first?",
+  "Show me the bugs and how to fix them",
+  "How does authentication work?",
   "What database does this use?",
-  "How is the project structured?",
-  "What technology is this project using?",
 ];

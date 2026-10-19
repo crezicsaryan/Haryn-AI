@@ -1,5 +1,4 @@
 import type { Chunk } from "./chunk";
-import type { Retrieved } from "./retrieve";
 import { splitIdentifier, tokenize } from "./tokenize";
 
 /**
@@ -278,7 +277,7 @@ function isExternalModule(spec: string): boolean {
 }
 
 /** Plain-English meaning for the status codes that carry real information. */
-const RESPONSE_MEANING: Record<number, string> = {
+export const RESPONSE_MEANING: Record<number, string> = {
   200: "ok",
   201: "created",
   204: "no content",
@@ -348,29 +347,6 @@ function extractSignals(text: string): Signals {
   };
 }
 
-/**
- * The chunk's opening declaration.
- *
- * Import and export-from lines are skipped: they are the first non-comment lines
- * in many files but say nothing about what the unit does. The reader wants the
- * signature — `const protect = async (req, res, next) => {`.
- */
-function signatureOf(chunk: Chunk): string | null {
-  const lines = chunk.text.split("\n").map((l) => l.trim());
-  const first = lines.find(
-    (l) =>
-      l &&
-      !l.startsWith("//") &&
-      !l.startsWith("#") &&
-      !l.startsWith("*") &&
-      !l.startsWith("/*") &&
-      !/^import\b/.test(l) &&
-      !/^export\s+(?:\*|\{)\s*.*\bfrom\b/.test(l) &&
-      !/^(?:const|let|var)\s+\w+\s*=\s*require\s*\(/.test(l) &&
-      !/^["']use (?:strict|client|server)["'];?$/.test(l)
-  );
-  return first ? first.slice(0, 160) : null;
-}
 
 /* ------------------------------------------------------------------ */
 /* Relevance                                                           */
@@ -423,7 +399,7 @@ export function relevance(chunk: Chunk, question: string): number {
  * positive only suppresses a caveat, while a false negative would tell the
  * reader that a correct answer is irrelevant.
  */
-function stemsOverlap(question: string, chunk: Chunk): boolean {
+export function stemsOverlap(question: string, chunk: Chunk): boolean {
   const asked = [...new Set(tokenize(question))].filter((t) => t.length >= 3);
   if (!asked.length) return true;
   const present = new Set(
@@ -469,188 +445,7 @@ export function explainChunk(chunk: Chunk, question: string): ExplainedSite {
  *   3. the dependencies each site needs;
  *   4. notable signals (auth, env, database, error handling);
  *   5. honest coverage limits.
- */
-/**
- * How the answer should close.
  *
- * The old text always said "add an LLM key", which is actively misleading when
- * a key *is* configured but every provider was rate-limited or returned an
- * error — the reader goes looking for a configuration problem that does not
- * exist. The caller says which situation applies.
+ * The composer that used these live in `diagnose.ts` now; this module is the
+ * evidence layer only — roles, calls, packages and signals.
  */
-export type OfflineReason = "no-provider" | "provider-failed" | "external-only";
-
-function closingFor(reason: OfflineReason): string {
-  if (reason === "external-only") {
-    return ". This is the offline answer drawn from the repository's own package manifest. Add an AI provider key for a written, reasoned explanation.";
-  }
-  return reason === "provider-failed"
-    ? ". This is the offline answer: an AI provider is configured but did not respond (rate limit, quota or error), so the source was summarised directly."
-    : ". Add an AI provider key for a written, reasoned explanation.";
-}
-
-export function comprehend(
-  reportName: string,
-  question: string,
-  results: Retrieved[],
-  offlineReason: OfflineReason = "no-provider"
-): { answer: string; sources: string[] } {
-  if (!results.length) {
-    return {
-      answer: [
-        `I couldn't find anything in ${reportName} matching that question.`,
-        "",
-        "That usually means one of:",
-        "• the feature does not exist in this repository,",
-        "• it is named differently — try a symbol, file or folder name, or",
-        "• the code sits outside the analysed file set.",
-      ].join("\n"),
-      sources: [],
-    };
-  }
-
-  const sites = results.map((r) => explainChunk(r.chunk, question));
-  sites.sort((a, b) => b.relevance - a.relevance);
-
-  /*
-   * Lead with implementation, not with a test.
-   *
-   * A test file that exercises the feature scores highly on relevance — it
-   * contains the same identifiers and the same literals — so "How does
-   * authentication work?" opened on `comprehend.test.ts` and then described the
-   * test's assertions. That is evidence *about* the feature, not the feature.
-   * Tests still appear further down as part of the thread; they just do not
-   * answer the question on their own.
-   */
-  const lead = sites.find((s) => s.role !== "test") ?? sites[0];
-  const files = [...new Set(sites.map((s) => s.chunk.path))];
-  const closing = closingFor(offlineReason);
-  const lines: string[] = [];
-
-  /* --- 1. What the matched code is ---------------------------------- */
-  /*
-   * If none of the question's words occur in the match, it is not an answer —
-   * it is just the highest-scoring chunk. Retrieval still returns something for
-   * "Where is the Kubernetes deployment configured?" and calling that "the
-   * clearest match" asserts a relevance that does not exist. `relevance()` uses
-   * substring matching, so a zero here means genuinely no overlap, not a
-   * stemming miss.
-   */
-  const noOverlap = !stemsOverlap(question, lead.chunk);
-  const opener = noOverlap ? "The closest code I could find is" : "The clearest match is";
-  const roleWord = ROLE_META[lead.role].label;
-  if (lead.chunk.symbol) {
-    lines.push(
-      `${opener} \`${lead.chunk.symbol}\` — a ${roleWord} in ${lead.chunk.path} (line ${lead.chunk.startLine}), which ${ROLE_META[lead.role].describes}.`
-    );
-  } else {
-    lines.push(
-      `${opener} ${lead.chunk.path} (line ${lead.chunk.startLine}) — ${roleWord} that ${ROLE_META[lead.role].describes}.`
-    );
-  }
-  if (noOverlap) {
-    lines.push("");
-    lines.push(
-      "None of the terms in your question appear in it, so this is probably not what you are asking about — the repository may not contain that feature."
-    );
-  }
-
-  const sig = signatureOf(lead.chunk);
-  if (sig && lead.chunk.symbol && !lines[0].includes(sig)) {
-    lines.push("");
-    lines.push("```");
-    lines.push(sig);
-    lines.push("```");
-  }
-
-  /* --- 2. Flow: the calls it makes ---------------------------------- */
-  const flow = lead.calls.filter((c) => c !== lead.chunk.symbol);
-  if (flow.length) {
-    lines.push("");
-    lines.push(
-      flow.length === 1
-        ? "It delegates to one other function:"
-        : `It delegates to ${flow.length} other functions, in order:`
-    );
-    flow.forEach((c, i) => lines.push(`${i + 1}. \`${c}\``));
-  }
-
-  /* --- 3. Dependencies ---------------------------------------------
-   * Packages are attributed to the file that imports them. A single merged list
-   * reads as "this codebase uses mongoose and firestore and express" when in
-   * fact those came from three unrelated files — an over-claim that is exactly
-   * what an evidence-based answer must avoid.
-   */
-  const withExternals = sites.filter((s) => s.externals.length > 0);
-  if (withExternals.length === 1) {
-    lines.push("");
-    lines.push(
-      `It imports: ${withExternals[0].externals.map((e) => `\`${e}\``).join(", ")}.`
-    );
-  } else if (withExternals.length > 1) {
-    lines.push("");
-    lines.push("Packages each match depends on:");
-    for (const s of withExternals.slice(0, 4)) {
-      lines.push(
-        `• ${s.chunk.path} → ${s.externals.map((e) => `\`${e}\``).join(", ")}`
-      );
-    }
-  }
-
-  /* --- 4. Signals --------------------------------------------------- */
-  const envVars = [...new Set(sites.flatMap((s) => s.signals.env))];
-  const db = [...new Set(sites.flatMap((s) => s.signals.dbHints))];
-  const auth = [...new Set(sites.flatMap((s) => s.signals.authWords))];
-  const methods = [...new Set(sites.flatMap((s) => s.signals.httpMethods))];
-  const codes = [...new Set(sites.flatMap((s) => s.signals.statusCodes))].sort((a, b) => a - b);
-
-  const notable: string[] = [];
-  if (methods.length) notable.push(`routes registered: ${methods.join(", ")}`);
-  if (db.length) notable.push(`data stores referenced: ${db.join(", ")}`);
-  if (auth.length) notable.push(`auth primitives: ${auth.join(", ")}`);
-  // Status codes say what the code does on success and failure — often the
-  // clearest statement of its contract, so they are reported explicitly.
-  if (codes.length) {
-    notable.push(
-      `HTTP responses: ${codes
-        .map((c) => `${c}${RESPONSE_MEANING[c] ? ` (${RESPONSE_MEANING[c]})` : ""}`)
-        .join(", ")}`
-    );
-  }
-  if (envVars.length) notable.push(`environment variables: ${envVars.join(", ")}`);
-  if (sites.some((s) => s.signals.catches)) notable.push("error handling present");
-  if (sites.some((s) => s.signals.async)) notable.push("asynchronous work");
-
-  if (notable.length) {
-    lines.push("");
-    lines.push(`What the matched code touches: ${notable.join("; ")}.`);
-  }
-
-  /* --- 5. Other places it appears ---------------------------------- */
-  // Exclude the lead by identity, not by position: the lead is chosen by role,
-  // so it is not always sites[0] and slicing would list it twice.
-  const others = sites.filter((s) => s !== lead);
-  if (others.length) {
-    lines.push("");
-    lines.push(
-      `The same thread appears in ${others.length} other place${others.length === 1 ? "" : "s"}:`
-    );
-    for (const s of others.slice(0, 5)) {
-      const sym = s.chunk.symbol ? `\`${s.chunk.symbol}\` — ` : "";
-      lines.push(`• ${sym}${s.chunk.path}:${s.chunk.startLine} (${ROLE_META[s.role].label})`);
-    }
-  }
-
-  /* --- 6. Honest limits -------------------------------------------- */
-  lines.push("");
-  lines.push(
-    `Assembled directly from the source in ${files.length} file${files.length === 1 ? "" : "s"} — ${sites.length} match${sites.length === 1 ? "" : "es"}${closing}`,
-  );
-
-  return {
-    answer: lines.join("\n"),
-    // The lead is cited first so the source list reads in the order the answer
-    // mentions them, rather than in raw relevance order.
-    sources: [lead, ...others].slice(0, 6).map((s) => `${s.chunk.path}:${s.chunk.startLine}`),
-  };
-}

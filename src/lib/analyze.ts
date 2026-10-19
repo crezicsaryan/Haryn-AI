@@ -31,7 +31,7 @@ import type { RawFinding, SourceFile } from "./analyzers/types";
 import { computeScores } from "./scoring";
 import { buildRecommendations } from "./recommendations";
 import { generateSummary } from "./summary";
-import { buildIndex, generateAiSummary, aiStatus, type RepoIndex } from "./ai";
+import { buildIndex, type RepoIndex } from "./ai";
 import { hashString, makeId } from "./utils";
 import { LIMITS } from "./constants";
 import { extractGraph, type ExtractResult as GraphExtractResult } from "./graph/extract";
@@ -401,14 +401,11 @@ export async function runAnalysis(
 
   /* 12 — Build the retrieval index ----------------------------------- */
   active("ai", "Indexing repository for retrieval", 96);
-  const index = await buildIndex(analyzable, {
-    // Embeddings are only attempted when a key is configured; failure is fine.
-    withEmbeddings: aiStatus().embeddingsEnabled,
-  });
+  const index = await buildIndex(analyzable);
   done("ai", "Repository indexed", 97);
 
   /* 13 — Assemble the report ----------------------------------------- */
-  active("ai", "Generating AI report", 98);
+  active("ai", "Assembling the report", 98);
 
   const structure = {
     fileCount: classified.fileCount,
@@ -461,15 +458,7 @@ export async function runAnalysis(
     },
   };
 
-  /* 14 — Upgrade the narrative with an LLM when one is configured ----- */
-  const aiSummary = await generateAiSummary(report);
-  report.summary = aiSummary.text;
-  report.summaryEngine = aiSummary.engine;
-  if (aiSummary.engine === "llm") {
-    report.aiNotice =
-      "The summary was written by a language model from the measured findings only — every claim traces back to the static analysis.";
-  }
-  done("ai", "AI report generated", 99);
+  done("ai", "Report assembled", 99);
 
   return { report, index, graph };
 }

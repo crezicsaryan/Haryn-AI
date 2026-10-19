@@ -62,10 +62,10 @@ See [`.env.example`](./.env.example) for every supported variable.
 | Repository-aware chat (BM25 + structural signals) | ✅ Built |
 | Graph-aware chat (dependency / impact questions) | ✅ Built |
 | Grounded answers with `path:line` citations | ✅ Built |
-| LLM summary, answers, embedding blend (optional key) | ✅ Built |
+| **Bug diagnosis** — severity, evidence, impact, fix per finding | ✅ Built |
 | Export (Markdown, JSON, print-to-PDF) | ✅ Built |
 | SQLite persistence, shareable links, history | ✅ Built |
-| Automated tests (54, Node built-in runner) | ✅ Built |
+| Automated tests (271, Node built-in runner) | ✅ Built |
 | Background job queue (Redis/BullMQ) | ⏳ Deferred — analysis runs in-request |
 | GitHub OAuth / private repositories | ⏳ Deferred |
 
@@ -217,10 +217,9 @@ Source files
      │
      ▼
  Indexing          BM25 inverted index over code-aware tokens        ai/bm25.ts
-     │             (+ optional embedding vectors)                   ai/embeddings.ts
      ▼
  Retrieval         BM25 × symbol match × path match × import match
-                   × exact phrase × embedding cosine                ai/retrieve.ts
+                   × exact phrase                                   ai/retrieve.ts
      │
      ▼
  Routing           findings / tests / routes / dependencies questions
@@ -228,22 +227,31 @@ Source files
                    traversing the knowledge graph                    ai/router.ts
      │
      ▼
- Grounding         excerpts wrapped as untrusted data, delimiters
-                   neutralised against prompt injection            ai/answer.ts
+ Evidence          findings on the matched files, joined to the rule
+                   that produced each one                            ai/diagnose.ts
      │
      ▼
- Generation        LLM when configured ──┐
-                   extractive otherwise ──┴─ both cited by path:line
+ Diagnosis         join the match to its findings, rule metadata,
+                   call graph and coverage                        ai/diagnose.ts
+     │
+     ▼
+ Answer            what it does · what is wrong · what breaks ·
+                   how to fix · blast radius · how to verify
 ```
 
-**It works with no API key.** Retrieval is a dependency-free, in-process BM25 index
-plus structural signals, and answers are composed extractively from the retrieved
-excerpts — still accurate, still cited, just less fluent. Adding `AI_API_KEY` upgrades
-the summary and answers to genuine LLM prose and adds a semantic embedding blend. The
-UI always states which engine answered (`llm` vs `retrieval`).
+**There is no model in this path, by design.** A language model would make the
+answer read better and be less trustworthy: it can state a plausible cause that the
+analyzers never found, and the reader cannot tell. Every sentence here is either a
+measurement from the report or a finding with a `path:line` behind it, so the answer
+cannot invent a defect — and it says so when the evidence runs out.
 
-**Hybrid, not pure embeddings.** Questions about a codebase carry structural signal
-that term statistics miss — a symbol name, the folder a file lives in, a module it
+Depth comes from using *more* of the evidence, not from fluency: the retrieved match
+is joined to the findings on those exact files, each finding is expanded with the rule
+that produced it, the impact it describes and a concrete repair, repeated defects are
+collapsed into one root cause, and the import neighbourhood gives the blast radius.
+
+**Structural signals, not just term frequency.** Questions about a codebase carry
+signal that term statistics miss — a symbol name, the folder a file lives in, a module it
 imports. Those are cheap and high-precision, so they are scored explicitly on top of
 BM25. Two ranking details that were bugs before they were features: **stem keys**
 (3–4 character prefixes) so "authentication" reaches `auth.js`, and an **exactness
@@ -307,8 +315,7 @@ POST /api/analyze  (NDJSON stream)
         ├─ 9.  Compute category + health scores         lib/scoring.ts
         ├─ 10. Build recommendations                    lib/recommendations.ts
         ├─ 11. Chunk the code and build the index       lib/ai/
-        ├─ 12. Write the summary — LLM when configured,
-        │      deterministic otherwise                  lib/ai/summary.ts
+        ├─ 12. Synthesise the narrative summary         lib/ai/router.ts
         └─ 13. Persist the report and emit it           lib/store.ts
 ```
 
@@ -364,7 +371,7 @@ src/
     ├── analyze.ts                  Pipeline orchestrator
     ├── analyzers/                  8 analyzers + file ranking
     ├── graph/                      AST parsing, extraction, storage, traversal, chat
-    ├── ai/                         Chunking, BM25, retrieval, router, LLM layer
+    ├── ai/                         Chunking, BM25, retrieval, router, diagnosis
     ├── db.ts                       Lazy connection + portable DDL
     ├── store.ts                    The persistence seam
     ├── scoring.ts                  Deterministic score engine
@@ -461,11 +468,6 @@ Everything is optional. Copy `.env.example` to `.env.local` and fill in what you
 | --- | --- |
 | `DATABASE_FILE` | SQLite path (default `./data/haryn.db`) |
 | `GITHUB_TOKEN` | Enriches report metadata (optional) |
-| `AI_API_KEY` | Enables the LLM summary, fluent answers and embeddings |
-| `AI_BASE_URL` | Any OpenAI-compatible endpoint (default OpenAI) |
-| `AI_MODEL` | Chat model (default `gpt-4o-mini`) |
-| `AI_EMBEDDING_MODEL` | Embedding model (default `text-embedding-3-small`) |
-| `AI_EMBEDDINGS` | Set `off` to keep the LLM but skip embedding calls |
 | `MAX_REPOSITORY_SIZE_MB` / `MAX_FILES` / `MAX_FILE_SIZE_MB` | Analysis limits |
 | `ANALYSIS_TIMEOUT_SECONDS` / `ARCHIVE_TIMEOUT_SECONDS` | Time budgets |
 | `RATE_LIMIT_ANALYSIS` / `RATE_LIMIT_CHAT` | Requests per IP per hour |

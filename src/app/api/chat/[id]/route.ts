@@ -5,7 +5,7 @@ import {
   getReport,
   saveChatMessage,
 } from "@/lib/store";
-import { answerQuestion, embedQuery, retrieveFor } from "@/lib/ai";
+import { answerQuestion, retrieveFor } from "@/lib/ai";
 import { checkRepoScope, scopeRefusal } from "@/lib/ai/repo-scope";
 import { classifyIntent, factsAnswer, isFactsIntent } from "@/lib/ai/router";
 import { answerFromGraph } from "@/lib/graph/query";
@@ -155,21 +155,15 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   /* --- Retrieval-augmented path ------------------------------------- */
   if (index) {
-    // A semantic query vector is only attempted when embeddings were built.
-    const queryVector = index.embeddings ? await embedQuery(message) : null;
-
     const result = await answerQuestion({
       retriever: index.retriever,
       report,
       question: message,
-      queryVector,
     });
 
     // Only code questions have meaningful retrieved chunks to show.
     const matches =
-      result.intent === "code"
-        ? retrieveFor(index.retriever, message, queryVector)
-        : [];
+      result.intent === "code" ? retrieveFor(index.retriever, message) : [];
 
     await saveChatMessage(id, {
       role: "assistant",
@@ -186,8 +180,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         engine: result.engine,
         intent: result.intent,
         groundedIn: result.groundedIn,
-        provider: result.provider,
-        model: result.model,
         matches: matches.map<ChatMatch>((m) => ({
           path: m.chunk.path,
           line: m.chunk.startLine,
