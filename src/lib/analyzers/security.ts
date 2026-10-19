@@ -214,6 +214,15 @@ const CODE_RULES: CodeRule[] = [
     re: /(child_process|execSync|execFileSync|(?<!\.)\bexec\s*\(|spawn\s*\()/g,
     severity: "medium",
     confidence: 0.5,
+    /*
+     * Mask comments and regex literals but keep strings.
+     *
+     * `child_process` appears inside regex literals that merely *list* Node's
+     * builtin module names — including this rule's own definition — and the
+     * rule reported those as command injection. Strings must survive because
+     * `require("child_process")` is the genuine signal.
+     */
+    codeOnly: "keep-strings",
     description:
       "Spawning shell commands with interpolated values is a command-injection risk when inputs are untrusted.",
     impact: "Command injection leading to host compromise.",
