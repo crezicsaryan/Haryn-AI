@@ -33,6 +33,9 @@ export async function GET() {
         order: p.order,
         primary: p.primary,
         selfHosted: p.selfHosted,
+        // A public endpoint needing no key. The panel says so explicitly,
+        // because "configured" alone would imply the reader set something up.
+        keyless: p.keyless,
         // Whether the env var is present but still holds placeholder text —
         // "configured: false" alone does not tell the reader that a key is
         // sitting there unedited and will never authenticate.

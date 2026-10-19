@@ -13,6 +13,7 @@ import {
   resetCooling,
   resolveProviderId,
   isPlaceholderKey,
+  retryHintMs,
 } from "../ai/multiprovider";
 
 /* ------------------------------------------------------------------ */
@@ -27,6 +28,8 @@ const ALL_KEY_VARS = [
   "OPENROUTER_API_KEY", "OPENROUTER_MODEL",
   "CUSTOM_API_KEY", "CUSTOM_BASE_URL", "CUSTOM_MODEL", "AI_MODEL",
   "AI_PROVIDER_ORDER",
+  "POLLINATIONS_API_KEY", "POLLINATIONS_MODEL", "POLLINATIONS_BASE_URL",
+  "AI_ALLOW_KEYLESS",
 ];
 
 const saved = new Map<string, string | undefined>();
@@ -36,6 +39,12 @@ beforeEach(() => {
     saved.set(k, process.env[k]);
     delete process.env[k];
   }
+  /*
+   * Keyless is on by default, which would make "no keys configured" untrue in
+   * every test below. These tests are about the *keyed* path, so they switch it
+   * off explicitly; the keyless tests turn it back on themselves.
+   */
+  process.env.AI_ALLOW_KEYLESS = "off";
   resetCooling();
 });
 
@@ -54,7 +63,10 @@ function setKeys(keys: Record<string, string>) {
 
 /** A fetch stub that answers per-hostname from a scripted map. */
 function stubFetch(
-  script: Record<string, { status: number; body?: unknown; throw?: boolean }>
+  script: Record<
+    string,
+    { status: number; body?: unknown; throw?: boolean; error?: string }
+  >
 ) {
   const calls: string[] = [];
   const original = globalThis.fetch;
@@ -64,7 +76,9 @@ function stubFetch(
     const host = new URL(url).hostname;
     const entry = script[host];
     if (!entry) throw new Error(`no stub for ${host}`);
-    if (entry.throw) throw new Error("network down");
+    // `error` lets a test simulate an abort/timeout, which the caller classifies
+    // differently from a plain network failure.
+    if (entry.throw) throw new Error(entry.error ?? "network down");
     return new Response(JSON.stringify(entry.body ?? {}), {
       status: entry.status,
       headers: { "Content-Type": "application/json" },
@@ -511,4 +525,117 @@ test("a placeholder does not block a real key on the same provider", () => {
   // GOOGLE_API_KEY is the second var; a real one there must still work.
   setKeys({ GEMINI_API_KEY: "YOUR_API_KEY", GOOGLE_API_KEY: "AIzaSyC4N8f2kL9mQ3rT7vW1" });
   assert.equal(providerConfig("google") !== null, true);
+});
+
+/* ------------------------------------------------------------------ */
+/* Keyless public provider                                             */
+/* ------------------------------------------------------------------ */
+
+test("a keyless provider is usable with no key at all", () => {
+  process.env.AI_ALLOW_KEYLESS = "on";
+  const cfg = providerConfig("pollinations");
+  assert.ok(cfg, "keyless provider must be configured without a key");
+  assert.equal(cfg.apiKey, "");
+  assert.equal(cfg.def.keyless, true);
+});
+
+test("a keyless provider keeps the app working on an empty .env", () => {
+  process.env.AI_ALLOW_KEYLESS = "on";
+  assert.equal(configuredProviders().length, 1);
+  assert.equal(isAnyProviderConfigured(), true);
+  assert.match(providerSummary(), /Pollinations/);
+});
+
+test("AI_ALLOW_KEYLESS=off removes it, for private repositories", () => {
+  for (const off of ["off", "0", "false", "no", "OFF"]) {
+    process.env.AI_ALLOW_KEYLESS = off;
+    assert.equal(providerConfig("pollinations"), null, `"${off}" must disable it`);
+    assert.equal(isAnyProviderConfigured(), false);
+  }
+});
+
+test("a real key always outranks the keyless provider", () => {
+  process.env.AI_ALLOW_KEYLESS = "on";
+  process.env.GROQ_API_KEY = "gsk_real";
+  const chain = configuredProviders().map((c) => c.def.id);
+  assert.equal(chain[0], "groq", "the keyed provider must be tried first");
+  assert.ok(chain.includes("pollinations"), "keyless stays as the last resort");
+  assert.equal(chain[chain.length - 1], "pollinations");
+});
+
+test("a keyless provider is never reported as a placeholder key", () => {
+  process.env.AI_ALLOW_KEYLESS = "on";
+  const status = providerStatuses().find((p) => p.id === "pollinations");
+  assert.ok(status);
+  assert.equal(status.configured, true);
+  assert.equal(status.keyless, true);
+  assert.equal(
+    status.placeholderKey,
+    false,
+    "there is no key to be a placeholder, so warning about one would be noise"
+  );
+});
+
+test("the keyless provider can be named in the order string", () => {
+  process.env.AI_ALLOW_KEYLESS = "on";
+  assert.equal(resolveProviderId("pollinations"), "pollinations");
+  assert.equal(resolveProviderId("public"), "pollinations");
+  assert.equal(resolveProviderId("polli"), "pollinations");
+});
+
+/* ------------------------------------------------------------------ */
+/* Retry hints                                                         */
+/* ------------------------------------------------------------------ */
+
+test("a stated reset time wins over the generic 30-minute bucket", () => {
+  // Pollinations' free tier: "1 reply every 30 seconds". Parking it for 30
+  // minutes removes a working provider from the chain for no reason.
+  assert.equal(
+    retryHintMs(
+      "Free limit reached: 1 reply every 30 seconds per IP. Retry after 5s, or get unlimited replies."
+    ),
+    30_000
+  );
+});
+
+test("reads seconds, minutes and plain numbers with units", () => {
+  assert.equal(retryHintMs("Retry after 5s"), 10_000, "clamped up to the floor");
+  assert.equal(retryHintMs("try again in 45 seconds"), 45_000);
+  assert.equal(retryHintMs("rate limited, retry in 2 minutes"), 120_000);
+});
+
+test("ignores text with no reset time", () => {
+  assert.equal(retryHintMs("invalid api key"), null);
+  assert.equal(retryHintMs("model gpt-4o-mini not found"), null);
+  assert.equal(retryHintMs(""), null);
+});
+
+test("a long hint cannot park a provider indefinitely", () => {
+  assert.equal(retryHintMs("retry after 999999 seconds"), 30 * 60_000);
+});
+
+test("a provider's own timeout cap is the one reported", async () => {
+  // Pollinations throttles by queueing, so the global 45s wait is wasted; the
+  // message must name the 20s cap that actually fired, not the global default.
+  process.env.AI_ALLOW_KEYLESS = "on";
+  const s = stubFetch({
+    "text.pollinations.ai": {
+      status: 0,
+      throw: true,
+      error: "The operation was aborted due to timeout",
+    },
+  });
+  try {
+    const out = await chatWithFailover([{ role: "user", content: "hi" }], {
+      only: "pollinations",
+      timeoutMs: 45_000,
+    });
+    assert.equal(out, null, "a failing provider yields the offline path");
+    const parked = coolingReason("pollinations");
+    assert.ok(parked);
+    assert.match(parked!, /timed out after 20s/);
+    assert.ok(!/45s/.test(parked!), "must not report a timeout that never happened");
+  } finally {
+    s.restore();
+  }
 });

@@ -39,6 +39,8 @@ interface ProviderInfo {
   selfHosted: boolean;
   /** A key is present but is still the `.env.example` placeholder. */
   placeholderKey?: boolean;
+  /** A public endpoint that needs no key at all. */
+  keyless?: boolean;
 }
 
 interface StatusPayload {
@@ -188,7 +190,9 @@ export function ProviderPanel() {
                             )}
                           >
                             {p.configured
-                              ? p.model
+                              ? p.keyless
+                                ? `${p.model} · public, no key`
+                                : p.model
                               : p.placeholderKey
                                 ? "placeholder key — replace it"
                                 : "no key set"}

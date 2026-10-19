@@ -35,6 +35,7 @@ export type ProviderId =
   | "google"
   | "groq"
   | "openrouter"
+  | "pollinations"
   | "custom";
 
 export type WireFormat = "openai" | "anthropic" | "google";
@@ -60,6 +61,32 @@ export interface ProviderDef {
   consoleUrl: string;
   /** Free tier available, so the reader knows what can be tried at no cost. */
   freeTier: boolean;
+  /**
+   * Path appended to the base URL for the OpenAI wire format.
+   *
+   * Most services expose `/chat/completions`, but not all: Pollinations serves
+   * the OpenAI-compatible surface at `/openai`. Assuming the standard path
+   * produced a 404 that looked like an outage.
+   */
+  endpointPath?: string;
+  /**
+   * Upper bound on how long to wait for this provider, in milliseconds.
+   *
+   * A public endpoint that throttles by *queuing* rather than rejecting holds
+   * the connection open, so the global 45 s timeout is spent waiting for a
+   * reply that is not coming. Failing fast leaves time to fall back to the
+   * offline answer, which is more useful than a spinner.
+   */
+  timeoutMs?: number;
+  /**
+   * Usable with no key at all.
+   *
+   * This is a public endpoint, not a free tier: there is no account, no quota
+   * dashboard and no billing — and equally no privacy expectation. It exists so
+   * the assistant works on a fresh clone with an empty `.env`, and it is placed
+   * last in the chain so any real key always wins.
+   */
+  keyless?: boolean;
 }
 
 export const PROVIDERS: ProviderDef[] = [
@@ -129,6 +156,24 @@ export const PROVIDERS: ProviderDef[] = [
     freeTier: true,
   },
   {
+    id: "pollinations",
+    label: "Pollinations",
+    wire: "openai",
+    keyVars: ["POLLINATIONS_API_KEY"],
+    modelVars: ["POLLINATIONS_MODEL"],
+    // The anonymous tier only serves `openai-fast` (a reasoning model); asking
+    // for `openai` routed to a slower variant that exceeded the timeout.
+    defaultModel: "openai-fast",
+    defaultBaseUrl: "https://text.pollinations.ai",
+    endpointPath: "/openai",
+    timeoutMs: 20_000,
+    baseUrlVar: "POLLINATIONS_BASE_URL",
+    primaryKeyVar: "POLLINATIONS_API_KEY",
+    consoleUrl: "https://pollinations.ai",
+    freeTier: true,
+    keyless: true,
+  },
+  {
     id: "custom",
     label: "Custom (OpenAI-compatible)",
     wire: "openai",
@@ -164,6 +209,9 @@ const ALIASES: Record<string, ProviderId> = {
   groq: "groq",
   openrouter: "openrouter",
   or: "openrouter",
+  pollinations: "pollinations",
+  polli: "pollinations",
+  public: "pollinations",
   custom: "custom",
   local: "custom",
   ollama: "custom",
@@ -226,6 +274,20 @@ export function isPlaceholderKey(value: string): boolean {
   return false;
 }
 
+/**
+ * Is the keyless public provider switched off?
+ *
+ * A keyless provider sends repository excerpts to an anonymous third party with
+ * no account and no data-processing agreement. That is fine for a public repo
+ * and wrong for a private one, so it can be turned off with
+ * `AI_ALLOW_KEYLESS=off`. Default is on: the assistant should work on a fresh
+ * clone, and the panel says plainly that the provider is public.
+ */
+function keylessDisabled(): boolean {
+  const v = env("AI_ALLOW_KEYLESS").toLowerCase();
+  return v === "off" || v === "0" || v === "false" || v === "no";
+}
+
 function firstEnv(names: string[]): string {
   for (const n of names) {
     const v = env(n);
@@ -250,7 +312,10 @@ export function providerConfig(id: ProviderId): ProviderConfig | null {
   // A local OpenAI-compatible server (Ollama, LM Studio, vLLM) needs no key, so
   // the custom slot is usable whenever a base URL is configured.
   const selfHosted = def.id === "custom" && Boolean(env(def.baseUrlVar));
-  if (!apiKey && !selfHosted) return null;
+  // A keyless provider is usable as-is; `AI_ALLOW_KEYLESS=off` removes it, for
+  // anyone who does not want repository excerpts leaving the machine.
+  const keyless = Boolean(def.keyless) && !keylessDisabled();
+  if (!apiKey && !selfHosted && !keyless) return null;
 
   return {
     def,
@@ -359,6 +424,28 @@ function classify(status: number): { reason: string; ms: number } {
   if (status === 404) return { reason: "model not found (404)", ms: COOLDOWN_MS };
   if (status >= 500) return { reason: `provider error (${status})`, ms: COOLDOWN_MS };
   return { reason: `request failed (${status})`, ms: COOLDOWN_MS };
+}
+
+/**
+ * How long the provider says to wait, in milliseconds.
+ *
+ * Providers that throttle usually say so ("Retry after 5s", "1 reply every 30
+ * seconds"). Parking for the default 30 minutes when the limit resets in 30
+ * seconds takes a working provider out of the chain for half an hour, which is
+ * the opposite of what failover is for. The largest time in the message wins,
+ * because a message often quotes both the wait and the window; the result is
+ * clamped so a typo cannot park a provider for a week.
+ */
+export function retryHintMs(text: string): number | null {
+  const secs = [...text.matchAll(/(\d+)\s*(?:s\b|sec(?:ond)?s?\b)/gi)].map(
+    (m) => Number(m[1]) * 1000
+  );
+  const mins = [...text.matchAll(/(\d+)\s*(?:m\b|min(?:ute)?s?\b)/gi)].map(
+    (m) => Number(m[1]) * 60_000
+  );
+  const all = [...secs, ...mins].filter((n) => Number.isFinite(n) && n > 0);
+  if (!all.length) return null;
+  return Math.min(Math.max(Math.max(...all), 10_000), QUOTA_COOLDOWN_MS);
 }
 
 /** The provider's own error text, when it is helpful. */
@@ -521,7 +608,11 @@ function endpointAndHeaders(cfg: ProviderConfig): { url: string; headers: Header
     headers["X-Title"] = "Haryn AI";
   }
 
-  return { url: `${cfg.baseUrl}/chat/completions`, headers, wire };
+  return {
+    url: `${cfg.baseUrl}${cfg.def.endpointPath ?? "/chat/completions"}`,
+    headers,
+    wire,
+  };
 }
 
 /** One attempt against one provider. Never throws. */
@@ -531,6 +622,9 @@ async function callProvider(
   opts: { temperature: number; maxTokens: number; timeoutMs: number }
 ): Promise<CallResult | { error: string; status: number }> {
   const { url, headers, wire } = endpointAndHeaders(cfg);
+  // A provider may cap its own wait; the reported duration must be the one
+  // actually used, or the message blames a timeout that never happened.
+  const waitMs = Math.min(opts.timeoutMs, cfg.def.timeoutMs ?? opts.timeoutMs);
 
   const body =
     wire === "anthropic"
@@ -545,7 +639,7 @@ async function callProvider(
       headers,
       body: JSON.stringify(body),
       cache: "no-store",
-      signal: AbortSignal.timeout(opts.timeoutMs),
+      signal: AbortSignal.timeout(waitMs),
     });
 
     if (!res.ok) {
@@ -571,7 +665,7 @@ async function callProvider(
     const msg = e instanceof Error ? e.message : String(e);
     const timeout = /abort|timeout/i.test(msg);
     return {
-      error: timeout ? `timed out after ${Math.round(opts.timeoutMs / 1000)}s` : msg.slice(0, 160),
+      error: timeout ? `timed out after ${Math.round(waitMs / 1000)}s` : msg.slice(0, 160),
       status: timeout ? 408 : 0,
     };
   }
@@ -650,7 +744,9 @@ export async function chatWithFailover(
       // The final attempt decides whether the provider is parked.
       const last = attempt === attempts - 1;
       if (last) {
-        const ms = classify(result.status).ms;
+        // Trust a stated reset time over the generic bucket: a "1 reply every
+        // 30 seconds" provider would otherwise be parked for 30 minutes.
+        const ms = retryHintMs(result.error) ?? classify(result.status).ms;
         markCooling(cfg.def.id, result.error, ms);
       }
       failures.push({ provider: cfg.def.id, error: result.error });
@@ -681,6 +777,8 @@ export interface ProviderStatus {
   primary: boolean;
   /** True when this is a local server needing no key. */
   selfHosted: boolean;
+  /** True when the provider is a public endpoint that needs no key. */
+  keyless: boolean;
   /**
    * A key is present but is a placeholder, so the provider is not usable.
    * Surfaced so the UI can say "replace the placeholder" rather than "no key".
@@ -730,8 +828,9 @@ export function providerStatuses(): ProviderStatus[] {
       order: isConfigured ? ++order : null,
       primary: isConfigured && def.id === primaryId,
       selfHosted: def.id === "custom" && isConfigured,
+      keyless: Boolean(def.keyless) && !keylessDisabled(),
       // Only meaningful when the provider is not usable because of the value.
-      placeholderKey: !isConfigured && hasPlaceholderKey(def),
+      placeholderKey: !isConfigured && !def.keyless && hasPlaceholderKey(def),
     } satisfies ProviderStatus;
   }).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
 }
