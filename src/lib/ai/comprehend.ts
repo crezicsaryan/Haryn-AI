@@ -414,6 +414,25 @@ export function relevance(chunk: Chunk, question: string): number {
   return score;
 }
 
+/**
+ * Does the chunk share any vocabulary with the question at all?
+ *
+ * Used to decide whether the best-scoring match is an *answer* or merely the
+ * highest-ranked chunk. Matching is by 4-character stem so "authentication"
+ * still finds `requireAuth`, and deliberately errs towards "yes" — a false
+ * positive only suppresses a caveat, while a false negative would tell the
+ * reader that a correct answer is irrelevant.
+ */
+function stemsOverlap(question: string, chunk: Chunk): boolean {
+  const asked = [...new Set(tokenize(question))].filter((t) => t.length >= 3);
+  if (!asked.length) return true;
+  const present = new Set(
+    tokenize(`${chunk.text} ${chunk.path} ${chunk.symbol ?? ""}`)
+  );
+  const prefixes = new Set([...present].map((t) => t.slice(0, 4)));
+  return asked.some((t) => present.has(t) || prefixes.has(t.slice(0, 4)));
+}
+
 /* ------------------------------------------------------------------ */
 /* Explanation                                                         */
 /* ------------------------------------------------------------------ */
@@ -493,20 +512,46 @@ export function comprehend(
   const sites = results.map((r) => explainChunk(r.chunk, question));
   sites.sort((a, b) => b.relevance - a.relevance);
 
-  const lead = sites[0];
+  /*
+   * Lead with implementation, not with a test.
+   *
+   * A test file that exercises the feature scores highly on relevance — it
+   * contains the same identifiers and the same literals — so "How does
+   * authentication work?" opened on `comprehend.test.ts` and then described the
+   * test's assertions. That is evidence *about* the feature, not the feature.
+   * Tests still appear further down as part of the thread; they just do not
+   * answer the question on their own.
+   */
+  const lead = sites.find((s) => s.role !== "test") ?? sites[0];
   const files = [...new Set(sites.map((s) => s.chunk.path))];
   const closing = closingFor(offlineReason);
   const lines: string[] = [];
 
   /* --- 1. What the matched code is ---------------------------------- */
+  /*
+   * If none of the question's words occur in the match, it is not an answer —
+   * it is just the highest-scoring chunk. Retrieval still returns something for
+   * "Where is the Kubernetes deployment configured?" and calling that "the
+   * clearest match" asserts a relevance that does not exist. `relevance()` uses
+   * substring matching, so a zero here means genuinely no overlap, not a
+   * stemming miss.
+   */
+  const noOverlap = !stemsOverlap(question, lead.chunk);
+  const opener = noOverlap ? "The closest code I could find is" : "The clearest match is";
   const roleWord = ROLE_META[lead.role].label;
   if (lead.chunk.symbol) {
     lines.push(
-      `The clearest match is \`${lead.chunk.symbol}\` — a ${roleWord} in ${lead.chunk.path} (line ${lead.chunk.startLine}), which ${ROLE_META[lead.role].describes}.`
+      `${opener} \`${lead.chunk.symbol}\` — a ${roleWord} in ${lead.chunk.path} (line ${lead.chunk.startLine}), which ${ROLE_META[lead.role].describes}.`
     );
   } else {
     lines.push(
-      `The clearest match is ${lead.chunk.path} (line ${lead.chunk.startLine}) — ${roleWord} that ${ROLE_META[lead.role].describes}.`
+      `${opener} ${lead.chunk.path} (line ${lead.chunk.startLine}) — ${roleWord} that ${ROLE_META[lead.role].describes}.`
+    );
+  }
+  if (noOverlap) {
+    lines.push("");
+    lines.push(
+      "None of the terms in your question appear in it, so this is probably not what you are asking about — the repository may not contain that feature."
     );
   }
 
@@ -582,12 +627,15 @@ export function comprehend(
   }
 
   /* --- 5. Other places it appears ---------------------------------- */
-  if (sites.length > 1) {
+  // Exclude the lead by identity, not by position: the lead is chosen by role,
+  // so it is not always sites[0] and slicing would list it twice.
+  const others = sites.filter((s) => s !== lead);
+  if (others.length) {
     lines.push("");
     lines.push(
-      `The same thread appears in ${sites.length - 1} other place${sites.length === 2 ? "" : "s"}:`
+      `The same thread appears in ${others.length} other place${others.length === 1 ? "" : "s"}:`
     );
-    for (const s of sites.slice(1, 6)) {
+    for (const s of others.slice(0, 5)) {
       const sym = s.chunk.symbol ? `\`${s.chunk.symbol}\` — ` : "";
       lines.push(`• ${sym}${s.chunk.path}:${s.chunk.startLine} (${ROLE_META[s.role].label})`);
     }
@@ -601,6 +649,8 @@ export function comprehend(
 
   return {
     answer: lines.join("\n"),
-    sources: sites.slice(0, 6).map((s) => `${s.chunk.path}:${s.chunk.startLine}`),
+    // The lead is cited first so the source list reads in the order the answer
+    // mentions them, rather than in raw relevance order.
+    sources: [lead, ...others].slice(0, 6).map((s) => `${s.chunk.path}:${s.chunk.startLine}`),
   };
 }

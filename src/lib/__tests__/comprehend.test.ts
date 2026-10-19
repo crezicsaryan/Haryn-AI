@@ -328,3 +328,89 @@ test("packages are attributed per file, not merged across files", () => {
   const mergeLine = answer.match(/It imports: .*/);
   assert.equal(mergeLine, null, "must not merge across files");
 });
+
+test("a test file never leads the answer when implementation is present", () => {
+  /*
+   * A test that exercises a feature matches the same identifiers and literals as
+   * the implementation, so it can out-score it — "How does authentication work?"
+   * opened on `comprehend.test.ts` and described the test's assertions. Tests are
+   * evidence about the feature, not the feature.
+   *
+   * The fixtures below are built so the test file genuinely wins on relevance
+   * (its symbol repeats the question's terms); the answer must still lead with
+   * the implementation.
+   */
+  const impl = chunk({
+    path: "src/lib/auth.ts",
+    symbol: "requireAuth",
+    text: [
+      "export function requireAuth(req, res, next) {",
+      "  const t = req.headers.authorization;",
+      "  try { return next(); }",
+      "  catch { return res.status(401).json({ error: 'unauthorized' }); }",
+      "}",
+    ].join("\n"),
+  });
+  const testFile = chunk({
+    path: "src/lib/__tests__/auth.test.ts",
+    symbol: "authentication work",
+    text: [
+      "test('authentication work', () => {",
+      "  // authentication work: assert the guard rejects a bad token",
+      "  expect(requireAuth).toThrow();",
+      "});",
+    ].join("\n"),
+  });
+
+  const { answer } = comprehend("acme/app", "how does authentication work", [
+    retrieved(testFile),
+    retrieved(impl),
+  ]);
+
+  const firstLine = answer.split("\n")[0];
+  assert.match(firstLine, /src\/lib\/auth\.ts/, "must lead with the implementation");
+  assert.ok(!/__tests__/.test(firstLine), `must not open on a test: ${firstLine}`);
+  // The test is still cited — it is part of the thread, just not the lead.
+  assert.match(answer, /__tests__\/auth\.test\.ts/);
+});
+
+test("when every match is a test, a test may lead", () => {
+  const only = chunk({
+    path: "src/lib/__tests__/auth.test.ts",
+    symbol: "rejects a bad token",
+    text: "test('rejects a bad token', () => { expect(fn).toThrow(); });",
+  });
+  const { answer } = comprehend("acme/app", "how does auth work", [retrieved(only)]);
+  assert.match(answer.split("\n")[0], /__tests__/);
+});
+
+test("says so when the best match shares no vocabulary with the question", () => {
+  // Retrieval returns *something* for any question, and calling the top chunk
+  // "the clearest match" asserts a relevance that does not exist.
+  const unrelated = chunk({
+    path: "src/app/api/status/route.ts",
+    symbol: "GET",
+    text: "export async function GET() { return Response.json({ ok: true }); }",
+  });
+  const { answer } = comprehend("acme/app", "Where is the Kubernetes deployment configured?", [
+    retrieved(unrelated),
+  ]);
+  assert.match(answer, /closest code I could find/i);
+  assert.match(answer, /probably not what you are asking about/i);
+  assert.ok(
+    !/The clearest match is/i.test(answer),
+    "must not claim relevance it does not have"
+  );
+});
+
+test("does not hedge when the vocabulary merely differs in form", () => {
+  // "authentication" vs `requireAuth` is a morphology gap, not an absent feature.
+  const impl = chunk({
+    path: "src/lib/auth.ts",
+    symbol: "requireAuth",
+    text: "export function requireAuth(req, res, next) { return next(); }",
+  });
+  const { answer } = comprehend("acme/app", "How does authentication work?", [retrieved(impl)]);
+  assert.match(answer, /The clearest match is/i);
+  assert.ok(!/probably not what you are asking about/i.test(answer));
+});
