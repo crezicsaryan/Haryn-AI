@@ -90,17 +90,34 @@
 }
 
 .pdf .mark {
+  position: relative;
   width: 6.4mm;
   height: 6.4mm;
-  border-radius: 1.8mm;
-  background: linear-gradient(145deg, var(--blue), #2a5bd7);
-  box-shadow: 0 0 0 1px rgba(122, 168, 255, 0.35), 0 4px 12px rgba(20, 60, 160, 0.45);
+  border-radius: 1.9mm;
+  /* Same mark as the app: teal squircle, white H, cyan node. The ring around the
+     node is the page colour so it reads as a cut-out. */
+  background:
+    radial-gradient(125% 125% at 20% 16%, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 48%),
+    linear-gradient(145deg, #2dd4bf, #0d9488);
+  box-shadow: inset 0 0.2mm 0 rgba(255, 255, 255, 0.3), 0 1mm 3mm -1.4mm rgba(13, 148, 136, 0.9);
   display: grid;
   place-items: center;
   color: #fff;
   font-size: 3.4mm;
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.04em;
+}
+
+.pdf .mark::after {
+  content: "";
+  position: absolute;
+  right: -0.8mm;
+  top: -0.8mm;
+  width: 2.2mm;
+  height: 2.2mm;
+  border-radius: 50%;
+  background: #22d3ee;
+  box-shadow: 0 0 0 0.55mm var(--navy);
 }
 
 .pdf .brand-name {
