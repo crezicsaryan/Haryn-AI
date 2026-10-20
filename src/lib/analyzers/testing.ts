@@ -18,6 +18,10 @@ const FRAMEWORK_SIGNATURES: { name: string; re: RegExp }[] = [
   { name: "RSpec", re: /\brspec\b/ },
   { name: "JUnit", re: /\bjunit\b/ },
   { name: "Go testing", re: /\bgo test\b/ },
+  // Node's built-in runner: no dependency to detect, so the import is the only
+  // signal. Without it a repository with a full node:test suite reported
+  // "frameworks: none" next to its own test count.
+  { name: "node:test", re: /["']node:test["']|\bnode\s+--test\b/ },
 ];
 
 /** Domains we treat as business-critical when judging test coverage. */

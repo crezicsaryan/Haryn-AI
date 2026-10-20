@@ -110,3 +110,18 @@ test("flags tests that are not in a dedicated directory", () => {
   const found = titles(["src/a.ts", "src/thing.test.ts"]);
   assert.ok(found.includes("No dedicated test directory"));
 });
+
+test("Node's built-in test runner is detected from the import", () => {
+  // There is no dependency to find in a manifest, so a node:test suite used to
+  // report zero frameworks while counting its own test files.
+  const paths = ["src/lib/__tests__/a.test.ts", "src/lib/a.ts"];
+  const a = analyzeTesting({
+    allPaths: paths,
+    sourceFiles: [
+      src("src/lib/__tests__/a.test.ts", 'import { test } from "node:test";\ntest("x", () => {});'),
+      src("src/lib/a.ts", "export const a = 1;"),
+    ],
+    manifestText: { "package.json": '{"name":"x"}' },
+  });
+  assert.ok(a.analysis.frameworks.includes("node:test"));
+});

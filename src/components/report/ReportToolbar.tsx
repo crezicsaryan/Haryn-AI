@@ -61,7 +61,10 @@ export function ReportToolbar({ report }: { report: Report }) {
   }
 
   function exportPdf() {
-    window.print();
+    // The report page itself is a long scrolling document; printing it produced
+    // whatever happened to be on screen. The print route is a purpose-built
+    // three-page A4 report, and it opens its own print dialog.
+    window.open(`/report/${report.id}/print?auto=1`, "_blank", "noopener");
   }
 
   return (
@@ -93,7 +96,7 @@ export function ReportToolbar({ report }: { report: Report }) {
             type="button"
             onClick={exportPdf}
             className={buttonClasses("secondary", "sm")}
-            title="Print or save as PDF"
+            title="Download a three-page PDF report"
           >
             <Printer className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">PDF</span>
@@ -131,7 +134,7 @@ export function ExportHint() {
   return (
     <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-3">
       <Download className="h-3.5 w-3.5" />
-      PDF via print · Markdown · JSON
+      3-page PDF · Markdown · JSON
     </span>
   );
 }
