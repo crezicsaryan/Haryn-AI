@@ -61,3 +61,6 @@ next-env.d.ts
 build*.log
 serve*.log
 analyze*.ndjson
+
+# Generated report exports
+reports/
