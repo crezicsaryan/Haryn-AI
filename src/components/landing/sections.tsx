@@ -101,15 +101,15 @@ const FAQ = [
   },
   {
     q: "How is the health score calculated?",
-    a: "Deterministically, from the findings. Security 20%, quality 20%, architecture 15%, performance 15%, testing 15%, dependencies 10%, documentation 5%. AI explains the score — it never decides it.",
+    a: "Deterministically, from the findings. Security 20%, quality 20%, architecture 15%, performance 15%, testing 15%, dependencies 10%, documentation 5%. Nothing else touches the number.",
   },
   {
-    q: "Can the AI invent problems that aren't real?",
-    a: "Findings come from static analyzers, and heuristic signals are explicitly labelled as potential. The AI layer only restates measured facts and cites the files behind them.",
+    q: "Can it invent problems that aren't real?",
+    a: "No — there is no model in the answer path. Every sentence is either a measurement from the analyzers or a finding with a file and line behind it. Heuristic signals are labelled as potential rather than stated as defects.",
   },
   {
-    q: "What happens if the AI is unavailable?",
-    a: "You still get the full deterministic report — scores, findings, architecture and recommendations — with a note that the narrative is temporarily unavailable.",
+    q: "What happens if I ask about something the analysis did not find?",
+    a: "It says so. When the best match shares no vocabulary with your question, the answer says it is probably not what you asked about — rather than describing an unrelated file as the answer.",
   },
 ];
 
@@ -210,13 +210,13 @@ export function Principle() {
             </div>
             <h2 className="mt-3 font-display text-2xl font-extrabold leading-tight tracking-tight text-ink sm:text-[30px]">
               Deterministic analysis finds the facts.{" "}
-              <span className="text-gradient">AI explains them.</span>
+              <span className="text-gradient">Every claim cites one.</span>
             </h2>
             <p className="mt-4 text-[14.5px] leading-relaxed text-ink-2">
               Haryn AI is not a chatbot that guesses whether your code is good. Static
-              analyzers measure the codebase, then a language model turns those
-              measurements into something you can act on — always citing the files
-              behind each claim.
+              analyzers measure the codebase, then the findings are joined to the rule
+              that produced them — severity, evidence, what breaks, and the fix —
+              always citing the file and line behind each claim.
             </p>
             <div className="mt-6 flex flex-wrap gap-2">
               {["Evidence-based", "File & line references", "Confidence levels", "No signup"].map(
@@ -288,7 +288,7 @@ export function Faq() {
       id="faq"
       eyebrow="Questions"
       title="Everything you might be wondering"
-      description="Short answers about privacy, scoring and what the AI is allowed to claim."
+      description="Short answers about privacy, scoring and what the analysis can and cannot claim."
     >
       <div className="grid gap-3 md:grid-cols-2">
         {FAQ.map((f) => (
@@ -351,8 +351,9 @@ export function Footer() {
           <div className="max-w-sm">
             <Logo />
             <p className="mt-3 text-[13px] leading-relaxed text-ink-2">
-              An AI-powered codebase intelligence platform. Paste a public GitHub
-              repository, get an evidence-based engineering health report.
+              An evidence-based codebase intelligence platform. Paste a public
+              GitHub repository, get a health report with the bug, its cause and
+              the fix — every line traced to a file and line number.
             </p>
             <p className="mt-3 font-serif text-[15px] italic text-ink-3">
               Understand. Diagnose. Improve Code.

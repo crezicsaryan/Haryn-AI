@@ -25,10 +25,9 @@ export interface SummaryInput {
 /**
  * Deterministic natural-language synthesis.
  *
- * This is the "AI explains the facts" layer: it only ever restates numbers and
- * findings produced by the static analyzers, so it cannot invent issues.
- * When an LLM is configured the same structured facts are handed to the model
- * instead — see lib/ai.ts.
+ * This is the only thing that writes the narrative: it restates numbers and
+ * findings produced by the static analyzers, so it cannot invent issues. There
+ * is no model in this path — the same facts are what the report shows.
  */
 export function generateSummary(input: SummaryInput): string {
   const { repo, languages, structure, scores, healthScore, findings, dependencies, testing, architecture } = input;

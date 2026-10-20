@@ -325,7 +325,7 @@ export function ReportView({ report }: { report: Report }) {
     },
     { id: "dependencies", label: "Dependencies", icon: Package },
     { id: "testing", label: "Testing", icon: TestTube2 },
-    { id: "summary", label: "AI summary", icon: Sparkles },
+    { id: "summary", label: "Summary", icon: Sparkles },
     {
       id: "actions",
       label: "Actions",
@@ -348,7 +348,7 @@ export function ReportView({ report }: { report: Report }) {
           {(
             [
               { id: "views" as const, label: "Report", icon: LayoutDashboard },
-              { id: "agent" as const, label: "AI agent", icon: MessageSquare },
+              { id: "agent" as const, label: "Assistant", icon: MessageSquare },
             ]
           ).map((p) => {
             const Icon = p.icon;
@@ -431,8 +431,8 @@ export function ReportView({ report }: { report: Report }) {
             </div>
 
             <p className="mt-4 hidden text-[11.5px] leading-relaxed text-ink-4 lg:block">
-              Pick a view. The AI agent stays open beside it — ask about whatever
-              you are looking at.
+              Pick a view. The assistant stays open beside it — ask about
+              whatever you are looking at.
             </p>
           </nav>
 
@@ -595,8 +595,8 @@ export function ReportView({ report }: { report: Report }) {
                 Category scores
               </h2>
               <p className="mt-1 text-[13.5px] text-ink-2">
-                Weighted to produce the overall health score — deterministic, not
-                AI-decided.
+                Weighted to produce the overall health score — computed, never
+                guessed.
               </p>
             </div>
           </div>

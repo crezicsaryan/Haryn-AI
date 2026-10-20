@@ -284,7 +284,7 @@ function EngineBadge({ engine }: { engine?: "retrieval" | "graph" }) {
 }
 
 /**
- * The AI agent — the right-hand pane of the report.
+ * The assistant — the right-hand pane of the report.
  *
  * Extracted from the old composite panel so it can sit persistently beside the
  * content instead of being one more section in a long scroll.
@@ -557,7 +557,7 @@ export function AiSummaryCard({ report }: { report: Report }) {
   return (
     <Card>
       <CardHeader
-        title="AI repository summary"
+        title="Repository summary"
         subtitle="A narrative built only from the measured findings"
         icon={<Sparkles className="h-4 w-4" />}
         action={
