@@ -63,7 +63,7 @@ See [`.env.example`](./.env.example) for every supported variable.
 | Graph-aware chat (dependency / impact questions) | ✅ Built |
 | Grounded answers with `path:line` citations | ✅ Built |
 | **Bug diagnosis** — severity, evidence, impact, fix per finding | ✅ Built |
-| Export (Markdown, JSON, print-to-PDF) | ✅ Built |
+| Export — **3-page A4 PDF**, Markdown, JSON | ✅ Built |
 | SQLite persistence, shareable links, history | ✅ Built |
 | Automated tests (271, Node built-in runner) | ✅ Built |
 | Background job queue (Redis/BullMQ) | ⏳ Deferred — analysis runs in-request |
@@ -294,7 +294,10 @@ timestamps become `TIMESTAMPTZ`, `TEXT` JSON columns become `JSONB`. Then reimpl
 
 ### 11. Export
 
-Markdown, JSON, or print-to-PDF from any report.
+Markdown, JSON, or a three-page A4 PDF from any report. The PDF is a
+purpose-built document — executive summary, detailed findings, action plan —
+not a printed web page, and `scripts/render-pdf.js` checks every page against
+A4 height so a long report cannot silently clip its footer.
 
 ---
 
