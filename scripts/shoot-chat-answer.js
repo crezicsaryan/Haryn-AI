@@ -31,7 +31,7 @@ const QUESTIONS = process.env.Q
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
 
-  const report = process.env.REPORT || "/report/an_mvf8h0icx07nmu";
+  const report = process.env.REPORT || "/report/an_mvgak276suvc3g";
   await page.goto(`${BASE}${report}`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1500);
 
