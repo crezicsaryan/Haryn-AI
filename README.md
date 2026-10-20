@@ -6,12 +6,16 @@ Paste a public GitHub repository URL and Haryn AI fetches, parses and reports on
 security, bugs, code quality, performance, architecture, testing, dependencies,
 documentation and commit activity — producing a deterministic
 **Codebase Health Score**, a prioritized action plan, an interactive
-**codebase knowledge graph**, and a retrieval-grounded AI agent you can ask about
-the code.
+**codebase knowledge graph**, and an assistant you can ask about the code — where
+every answer names the bug, the file and line, what breaks, and how to fix it.
 
-> **Core principle:** deterministic static analysis finds the facts; AI only explains
-> them. Every claim in a report traces back to a measurement — Haryn AI is not a
-> chatbot guessing whether your code is good.
+> **Core principle:** deterministic static analysis finds the facts, and every
+> claim traces back to a measurement. There is no model in the answer path, so a
+> report cannot invent an issue — Haryn AI is not a chatbot guessing whether your
+> code is good.
+
+**[Read a sample report →](reports/Haryn_AI_Health_Report.pdf)** — three pages:
+executive summary, detailed findings, action plan.
 
 ---
 
@@ -92,11 +96,11 @@ front with `status: "running"`, so an abandoned run stays visible in history.
 
 ### 3. Report dashboard — two panes
 
-A view rail with **ten switchable views** plus a persistent **AI agent pane** beside
-it (collapsing to a Report / AI agent switcher on mobile):
+A view rail with **ten switchable views** plus a persistent **assistant pane** beside
+it (collapsing to a Report / Assistant switcher on mobile):
 
 `Overview · Scores · Bugs · Findings · Activity · Architecture · Knowledge graph ·
-Dependencies · Testing · AI summary · Actions`
+Dependencies · Testing · Summary · Actions`
 
 ### 4. Eight analyzers
 
@@ -206,7 +210,7 @@ is labelled **potential** impact, never a guarantee.
 Graph generation is **non-fatal**: if it fails, the failure is recorded on
 `stats.error` and the report still completes.
 
-### 9. Retrieval-grounded AI agent
+### 9. Repository assistant
 
 ```
 Source files

@@ -62,5 +62,7 @@ build*.log
 serve*.log
 analyze*.ndjson
 
-# Generated report exports
-reports/
+# Generated report exports — only the published PDF is tracked, so anyone can
+# read it on GitHub. The per-page PNGs and older renders stay local.
+reports/*
+!reports/Haryn_AI_Health_Report.pdf
