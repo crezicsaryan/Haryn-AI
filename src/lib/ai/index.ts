@@ -45,7 +45,16 @@ export async function indexFromChunks(chunks: Chunk[]): Promise<RepoIndex> {
  * bloating the database.
  */
 export function persistableChunks(index: RepoIndex): Chunk[] {
-  const MAX_CHUNKS = 400;
+  /*
+   * The byte cap is the real guard; the count is a secondary one.
+   *
+   * At 400 chunks a mid-sized repository kept less than half its index (827
+   * chunks here), so after a restart the assistant could only search 48% of the
+   * code — asking about a file late in the ordering returned an unrelated one.
+   * The failure is silent: the answer looks like a normal answer. 1500 chunks is
+   * enough for a typical repository, and 2 MB still bounds a large one.
+   */
+  const MAX_CHUNKS = 1500;
   const MAX_BYTES = 2 * 1024 * 1024;
   const out: Chunk[] = [];
   let bytes = 0;
