@@ -71,7 +71,7 @@ export function DeveloperInfo() {
 
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <a
-                href="https://github.com/crezicsaryan/Haryn-AI"
+                href="https://github.com/crezicsaryan"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-pill border border-hair bg-surface-2 px-4 py-2 text-[13px] font-medium text-ink transition-colors hover:border-hair-strong hover:text-ink"
