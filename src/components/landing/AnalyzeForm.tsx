@@ -226,6 +226,7 @@ export function AnalyzeForm() {
             aria-controls="repo-history-list"
             aria-autocomplete="list"
             aria-activedescendant={active >= 0 ? `repo-history-${active}` : undefined}
+            suppressHydrationWarning
             onChange={(e) => {
               setUrl(e.target.value);
               setOpen(true);
