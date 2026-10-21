@@ -362,13 +362,14 @@ export async function runAnalysis(
     done("graph", `Knowledge graph built — ${graph.stats.nodeCount} nodes`, 92);
   } catch (err) {
     graph = undefined;
+    const errorMessage = err instanceof Error ? err.message : "generation failed";
+    // eslint-disable-next-line no-console
+    console.error("[Knowledge Graph Error]", errorMessage, err);
     // Reported through the stage, not thrown: the rest of the report is valid.
     emit({
       type: "progress",
       stage: "graph",
-      label: `Knowledge graph unavailable — ${
-        err instanceof Error ? err.message : "generation failed"
-      }`,
+      label: `Knowledge graph unavailable — ${errorMessage}`,
       status: "done",
       pct: 92,
     });
