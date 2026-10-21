@@ -114,15 +114,18 @@ function paragraph(
   opts: { size?: number; color?: string; bold?: boolean; lineGap?: number } = {}
 ): number {
   const size = opts.size ?? 7.6;
+  const safeText = safe(text);
+  const lineGap = opts.lineGap ?? 1.6;
+  const height = doc.heightOfString(safeText, {
+    width,
+    lineGap,
+  });
   doc
     .font(opts.bold ? "Helvetica-Bold" : "Helvetica")
     .fontSize(size)
     .fillColor(opts.color ?? C.ink2)
-    .text(safe(text), x, y, { width, lineGap: opts.lineGap ?? 1.6 });
-  return doc.heightOfString(safe(text), {
-    width,
-    lineGap: opts.lineGap ?? 1.6,
-  });
+    .text(safeText, x, y, { width, lineGap });
+  return height;
 }
 
 /** A rounded label, sized to its text. */
@@ -425,10 +428,9 @@ function pageOne(doc: Doc, report: Report): void {
   y += 18;
 
   const verdict = verdictOf(report, counts);
-  const blockH = 44 + paragraph(doc, summaryExcerpt(report, 2), M + 12, y + 10, CW - 24, {
-    size: 7,
-    color: C.ink2,
-  });
+  const excerptText = summaryExcerpt(report, 2);
+  const excerptH = doc.heightOfString(safe(excerptText), { width: CW - 24, lineGap: 1.6 });
+  const blockH = 44 + excerptH;
   panel(doc, M, y, CW, blockH);
 
   const verdictLabel =
@@ -443,8 +445,8 @@ function pageOne(doc: Doc, report: Report): void {
   const vw = chip(doc, verdictLabel, M + 12, y + 10, vc);
   paragraph(doc, verdict, M + 20 + vw, y + 11, CW - 32 - vw, { size: 6.6, color: C.ink3 });
 
-  // Re-draw the excerpt below the chip row.
-  paragraph(doc, summaryExcerpt(report, 2), M + 12, y + 30, CW - 24, { size: 7, color: C.ink2 });
+  // Draw the excerpt below the chip row.
+  paragraph(doc, excerptText, M + 12, y + 30, CW - 24, { size: 7, color: C.ink2 });
 
   footer(doc, report, "01 / 03");
 }
@@ -458,18 +460,18 @@ function findingBlock(doc: Doc, f: PdfFinding, y: number): number {
   const innerW = CW - pad * 2;
   const colW = (innerW - 16) / 2;
 
-  const what = paragraph(doc, f.what, M + pad, y + 26, colW, { size: 6.8, color: C.ink2 });
-  const fix = paragraph(doc, f.fix ?? "No specific repair recorded for this rule.", M + pad + colW + 16, y + 26, colW, {
-    size: 6.8,
-    color: C.ink2,
+  // First, compute all heights without drawing anything
+  const whatH = doc.heightOfString(safe(f.what), { width: colW, lineGap: 1.6 });
+  const fixH = doc.heightOfString(safe(f.fix ?? "No specific repair recorded for this rule."), {
+    width: colW,
+    lineGap: 1.6,
   });
 
-  const bodyTop = y + 26;
-  let cursor = bodyTop + Math.max(what, fix) + 6;
+  let cursor = y + 26 + Math.max(whatH, fixH) + 6;
 
   let impactH = 0;
   if (f.why) {
-    impactH = paragraph(doc, f.why, M + pad, cursor + 8, innerW, { size: 6.8, color: C.ink2 });
+    impactH = doc.heightOfString(safe(f.why), { width: innerW, lineGap: 1.6 });
     cursor += impactH + 14;
   }
 
@@ -478,29 +480,19 @@ function findingBlock(doc: Doc, f: PdfFinding, y: number): number {
     const ev = safe(f.evidence);
     doc.font("Courier").fontSize(6.2);
     evidenceH = doc.heightOfString(ev, { width: innerW - 12, lineGap: 1.2 });
-    cursor += 6;
-    doc.save();
-    doc.roundedRect(M + pad, cursor, innerW, evidenceH + 8, 3).lineWidth(0.5).strokeColor(C.hair);
-    doc.fillOpacity(1).fillColor("#03060f").fill();
-    doc.restore();
-    doc
-      .font("Courier")
-      .fontSize(6.2)
-      .fillColor("#b9cbe8")
-      .text(ev, M + pad + 6, cursor + 4, { width: innerW - 12, lineGap: 1.2 });
-    cursor += evidenceH + 12;
+    cursor += evidenceH + 18;
   }
 
   const blockH = cursor - y;
 
-  // Frame + severity rail
+  // Now draw the frame FIRST (background), then text on top
   doc.save();
   doc.roundedRect(M, y, CW, blockH, 4).lineWidth(0.5).strokeColor(C.hair);
   doc.fillOpacity(1).fillColor("#080f22").fill();
   doc.restore();
   doc.rect(M, y + 4, 2.4, blockH - 8).fill(severityColor(f.severity));
 
-  // Header
+  // Header (drawn on top of frame)
   doc
     .font("Courier-Bold")
     .fontSize(7)
@@ -541,11 +533,35 @@ function findingBlock(doc: Doc, f: PdfFinding, y: number): number {
     .fillColor(C.blue2)
     .text(safe(loc), M + pad, y + 20, { width: innerW, lineBreak: false });
 
+  // Labels
   label(doc, "What it is", M + pad, y + 26 - 6);
   label(doc, "Fix", M + pad + colW + 16, y + 26 - 6, C.teal);
 
+  // Body content (drawn on top of frame)
+  const bodyTop = y + 26;
+  paragraph(doc, f.what, M + pad, bodyTop, colW, { size: 6.8, color: C.ink2 });
+  paragraph(doc, f.fix ?? "No specific repair recorded for this rule.", M + pad + colW + 16, bodyTop, colW, {
+    size: 6.8,
+    color: C.ink2,
+  });
+
   if (f.why) {
-    label(doc, "Impact", M + pad, bodyTop + Math.max(what, fix) + 4, C.red);
+    label(doc, "Impact", M + pad, bodyTop + Math.max(whatH, fixH) + 4, C.red);
+    paragraph(doc, f.why, M + pad, bodyTop + Math.max(whatH, fixH) + 12, innerW, { size: 6.8, color: C.ink2 });
+  }
+
+  if (f.evidence) {
+    const ev = safe(f.evidence);
+    const evY = bodyTop + Math.max(whatH, fixH) + (f.why ? impactH + 14 : 0) + 6;
+    doc.save();
+    doc.roundedRect(M + pad, evY, innerW, evidenceH + 8, 3).lineWidth(0.5).strokeColor(C.hair);
+    doc.fillOpacity(1).fillColor("#03060f").fill();
+    doc.restore();
+    doc
+      .font("Courier")
+      .fontSize(6.2)
+      .fillColor("#b9cbe8")
+      .text(ev, M + pad + 6, evY + 4, { width: innerW - 12, lineGap: 1.2 });
   }
 
   return blockH;

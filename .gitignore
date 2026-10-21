@@ -66,3 +66,4 @@ analyze*.ndjson
 # read it on GitHub. The per-page PNGs and older renders stay local.
 reports/*
 !reports/Haryn_AI_Health_Report.pdf
+preview-pdf-*.pdf

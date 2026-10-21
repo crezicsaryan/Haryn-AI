@@ -7,7 +7,10 @@ import { Aurora } from "@/components/ui/Aurora";
 import { Logo } from "@/components/ui/Logo";
 import { buttonClasses } from "@/components/ui/Button";
 
-export const dynamic = "force-dynamic";
+/* Reports are immutable JSON documents — safe to cache indefinitely.
+   The export route (?format=pdf|md|json) is dynamic by nature, but the
+   report page itself is pure read-only. */
+export const revalidate = 86400; // 24 hours
 
 type PageParams = { params: Promise<{ id: string }> };
 

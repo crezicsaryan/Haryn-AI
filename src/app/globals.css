@@ -223,11 +223,28 @@ body {
     transform: translate3d(0, -3.5%, 0) scale(1.06);
   }
 }
-.animate-float-slow {
-  animation: float-slow 16s var(--ease-out-soft) infinite;
+/* Respect prefers-reduced-motion: disable decorative animations for users
+   who have requested reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-slow,
+  .animate-float-slower,
+  .animate-rise,
+  .shimmer::after,
+  .animate-spin-slow {
+    animation: none !important;
+  }
 }
-.animate-float-slower {
-  animation: float-slow 24s var(--ease-out-soft) infinite reverse;
+
+/* motion-safe variant: only animate when user has not requested reduced motion */
+@supports (animation-timeline: auto) {
+  @media (prefers-reduced-motion: no-preference) {
+    .motion-safe\:animate-float-slow {
+      animation: float-slow 16s var(--ease-out-soft) infinite;
+    }
+    .motion-safe\:animate-float-slower {
+      animation: float-slow 24s var(--ease-out-soft) infinite reverse;
+    }
+  }
 }
 
 @keyframes rise {

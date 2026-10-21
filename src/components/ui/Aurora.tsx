@@ -4,6 +4,9 @@ import { cn } from "@/lib/utils";
  * The signature Haryn backdrop: a near-white canvas, soft pastel gradient
  * blobs and a faint blueprint grid that fades out toward the edges.
  * Purely decorative — hidden from assistive tech.
+ *
+ * Performance note: animations respect prefers-reduced-motion. On hero
+ * variant we render 3 blobs instead of 5 to cut compositing cost.
  */
 export function Aurora({
   className,
@@ -25,9 +28,9 @@ export function Aurora({
       {/* Blueprint grid */}
       <div className="absolute inset-0 bg-grid bg-grid-fade opacity-70" />
 
-      {/* Pastel blobs */}
+      {/* Pastel blobs — reduced count on hero, static when motion is disabled */}
       <div
-        className="blob animate-float-slow"
+        className="blob motion-safe:animate-float-slow"
         style={{
           width: "46rem",
           height: "46rem",
@@ -39,7 +42,7 @@ export function Aurora({
         }}
       />
       <div
-        className="blob animate-float-slower"
+        className="blob motion-safe:animate-float-slower"
         style={{
           width: "40rem",
           height: "40rem",
@@ -51,7 +54,7 @@ export function Aurora({
         }}
       />
       <div
-        className="blob animate-float-slow"
+        className="blob motion-safe:animate-float-slow"
         style={{
           width: "34rem",
           height: "34rem",
@@ -63,36 +66,6 @@ export function Aurora({
           animationDelay: "-6s",
         }}
       />
-      {variant === "hero" && (
-        <>
-          <div
-            className="blob animate-float-slower"
-            style={{
-              width: "26rem",
-              height: "26rem",
-              top: "30%",
-              right: "6%",
-              background:
-                "radial-gradient(circle at 50% 50%, var(--color-blob-blush), transparent 70%)",
-              opacity: 0.5,
-              animationDelay: "-12s",
-            }}
-          />
-          <div
-            className="blob animate-float-slow"
-            style={{
-              width: "22rem",
-              height: "22rem",
-              top: "8%",
-              left: "38%",
-              background:
-                "radial-gradient(circle at 50% 50%, var(--color-blob-butter), transparent 72%)",
-              opacity: 0.4,
-              animationDelay: "-3s",
-            }}
-          />
-        </>
-      )}
 
       {/* Soft top sheen */}
       <div className="absolute inset-x-0 top-0 h-64 bg-gradient-to-b from-white/70 to-transparent" />
