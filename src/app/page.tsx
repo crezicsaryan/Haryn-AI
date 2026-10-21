@@ -13,6 +13,7 @@ import {
   CtaBand,
   Footer,
 } from "@/components/landing/sections";
+import { DeveloperInfo } from "@/components/landing/DeveloperInfo";
 
 export default function Home() {
   return (
@@ -100,6 +101,7 @@ export default function Home() {
           <Principle />
           <Faq />
           <CtaBand />
+          <DeveloperInfo />
         </div>
       </main>
 
