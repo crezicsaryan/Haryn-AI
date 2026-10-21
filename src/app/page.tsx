@@ -34,7 +34,7 @@ export default function Home() {
               </div>
 
               <h1 className="animate-rise mt-6 font-display text-[34px] font-extrabold leading-[1.06] tracking-[-0.03em] text-ink sm:text-[46px] lg:text-[56px]">
-                Hi, I&rsquo;m Haryn&thinsp;—
+                Hi, I&rsquo;m Haryn AI&thinsp;—
                 <br />
                 Your <span className="text-gradient">AI Codebase Doctor</span>
               </h1>

@@ -114,7 +114,7 @@ export function Logo({
           s.word
         )}
       >
-        Haryn
+        Haryn AI
       </span>
     </span>
   );
