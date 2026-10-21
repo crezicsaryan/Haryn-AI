@@ -61,10 +61,9 @@ export function ReportToolbar({ report }: { report: Report }) {
   }
 
   function exportPdf() {
-    // The report page itself is a long scrolling document; printing it produced
-    // whatever happened to be on screen. The print route is a purpose-built
-    // three-page A4 report, and it opens its own print dialog.
-    window.open(`/report/${report.id}/print?auto=1`, "_blank", "noopener");
+    // A direct download, like Markdown and JSON. Opening a print view and
+    // calling window.print() made the PDF depend on a popup and a dialog.
+    window.location.href = `/api/export/${report.id}?format=pdf`;
   }
 
   return (
